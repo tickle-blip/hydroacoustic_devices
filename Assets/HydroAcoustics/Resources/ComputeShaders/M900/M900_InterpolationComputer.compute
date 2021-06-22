@@ -1,0 +1,487 @@
+﻿#pragma kernel RenderInPolar
+#pragma kernel RemapQuad
+#pragma kernel RenderInCartesian
+
+#pragma kernel Zoom_RenderInPolar
+#pragma kernel Zoom_RenderInCartesian
+
+#include "../SonarsInterpolationBase.cginc"
+Texture2D<float4> Source;
+SamplerState _BilinearClamp;
+RWTexture2D<float4> Destination;
+Texture2D<float4> Noise;
+
+//Fields
+
+float CurrentRotAngle;
+float DiscreteAngleStep;
+
+
+float Interpolation;
+float HorisontalFOV;
+float VerticalFOV;
+float MinimumRange,MaximumRange;
+float MinRadius, MaxRadius;
+float Zoom_angle1, Zoom_angle2;
+//UI
+
+float4 _GridColor;
+uint CrossCount, GridCount, LinesCount;
+uint Rings;
+
+float ShowRings, ShowSector, ApplyZoom;
+
+float2 Offset;
+float Scale_factor;
+float Rotation;
+float Thickness;
+
+//Zoom//
+float2 MouseCoords;
+float2 ZoomBox, ZoomParams;
+float4 BoxColor;
+float BoxSize;
+
+//ColorPalette
+float Gamma;
+float4 _Colors[8];
+int _ColorsCount;
+float LowerFactor, MiddleFactor;
+float3 LerpColorPixels(float depth) {
+	depth = depth * step(LowerFactor, MiddleFactor);
+	depth = remap(0, 1, LowerFactor, MiddleFactor, depth);
+
+	//depth = depth * step(MiddleFactor, depth);
+	float sT = clamp(depth, 0, 1) * (float)(_ColorsCount - 1);
+	float3 oldColor = _Colors[floor(sT)].rgb;
+	float3 newColor = _Colors[ceil(sT)].rgb;
+	float newT = sT - floor(sT);
+
+	float3 color = lerp(oldColor, newColor, newT);
+	return color;
+}
+//---//
+
+//Methods
+float4 SampleBilinear(Texture2D tex, float2 uv, float4 texelSize)
+{
+	float2 uv_texels = uv * texelSize.zw + float2(0.5, 0.5);
+
+	float2 UVmin = float2((uv.x - texelSize.x*0.5)*texelSize.z, (uv.y -  texelSize.y * 0.5)*texelSize.w);
+
+	float2 UVmax = float2((uv.x + texelSize.x*0.5)*texelSize.z, (uv.y +  texelSize.y * 0.5)*texelSize.w);
+
+	float4 uv_min_max = float4(UVmin, UVmax);
+
+	float2 uv_frac = frac(uv_texels);
+	float4 texelA = Source[float2(uv_min_max.xy)];
+	float4 texelB = Source[float2(uv_min_max.xw)];
+	float4 texelC = Source[float2(uv_min_max.zy)];
+	float4 texelD = Source[float2(uv_min_max.zw)];
+
+	return lerp(lerp(texelA, texelB, uv_frac.y), lerp(texelC, texelD, uv_frac.y), uv_frac.x);
+}
+
+float SampleLinearY(Texture2D tex, float2 uv, float4 texelSize) {
+
+	float2 uv_texels = uv * texelSize.zw + float2(0, 0.5);
+	float2 y_min_max = float2(floor(uv_texels.y) - 0.5, floor(uv_texels.y) + 0.5);
+	float uv_frac = frac(uv_texels.y);
+
+	float2 uv1 = float2(uv_texels.x, y_min_max.x);
+	float2 uv2 = float2(uv_texels.x, y_min_max.y);
+
+	float4 colorA = Source[uv1];
+	float4 colorB = Source[uv2];
+	return lerp(colorA, colorB, uv_frac).r;
+}
+
+float DrawCross(float2 coord, float4 dim,float zoom)
+{
+	float m=0;
+	for (uint i = 0; i < CrossCount; i++) {
+		
+		float2 tempXY = coord * dim.xy;
+		tempXY += 0.5;
+		tempXY = rotateUV(tempXY, i * 90);
+
+		float y = 1 / clamp(Scale_factor, 0, 0.5)*2 ;
+		float norm = lerp(dim.w*dim.x, 1., i);
+		float l = LineSegment(tempXY, float2(-y, 0.5), float2(y, 0.5));
+		l = LineSharpen(l, Thickness*zoom /norm, dim.zw);
+		m += l;
+	}
+	return m;
+}
+float DrawSector(float2 normCoord, float2 angle_rad, float4 dim,float rings,float zoom)
+{
+	float S1_angle = Rotation + (90 - HorisontalFOV / 2);
+	float S2_angle = Rotation + (90 + HorisontalFOV / 2);
+	float l = 0; 
+	float s_lines = 0;
+	for (float i = 0; i < LinesCount+2; i++) 
+	{
+		float a = S1_angle + HorisontalFOV * (i/ (LinesCount+1));
+		float2 cosin_s1 = float2(-cos(a / 57.29), sin(a / 57.29));
+		l = LineSegment(normCoord, float2(0, 0), cosin_s1 / 2);
+		s_lines += LineSharpen(l, Thickness *zoom, dim.zw);
+	}
+
+	float In;
+	if (angle_rad.x > 0 && angle_rad.x < HorisontalFOV) In = 1;
+	else In = 0;
+	In = lerp(1 - In, In, 1);
+	float s_rings = (1 - step(Thickness*5*zoom *Rings, 1 - frac(rings)))*In;
+	
+	return (s_rings + s_lines)*step(MinimumRange, angle_rad.y) +(1 - step(Thickness * 5 * zoom / (0.01+MinimumRange), 1 - frac(clamp(angle_rad.y / MinimumRange, 0, 1))))*In;
+
+}
+
+float DrawGrid(float2 coord, float4 dim,float zoom) {
+
+	float g = 0;
+	for (uint j = 0; j < GridCount; j++)
+	{
+		float2 tempXY = coord * dim.xy;
+
+		tempXY += 0.5;
+		tempXY = rotateUV(tempXY, j*90.);
+		float r = lerp(dim.w*dim.x, 1., j);
+
+		float nAbs = r;
+		float norm = r;
+		//nAbs = dim.w*dim.x
+		float y = 1/clamp(Scale_factor,0,0.5)*2;
+		float l = LineSegment(tempXY, float2(-y, 0.5), float2(y, 0.5));
+		l = LineSharpen(l, Thickness *zoom, dim.zw);
+		g += l;
+		
+		for (uint i =0; i <= (Rings-1); i++) {
+			float uv_offset = 0.5*(1 + nAbs - norm * ((float)i / Rings));
+			float l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			float draw = step(0.5,uv_offset );
+			l = LineSharpen(l, Thickness  *zoom, dim.zw);
+			g += l*draw;
+
+			uv_offset = 0.5*(1	- nAbs+norm * ((float)i / Rings));
+			l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			draw = step(uv_offset, 0.5);
+			//draw = 1;
+			l = LineSharpen(l, Thickness *zoom, dim.zw);
+			g += l*draw;
+		}
+	}
+	return g;
+}
+
+
+float DrawGridPolar(float2 coord, float4 dim, float zoom) {
+
+	float g = 0;
+	for (uint j = 0; j < GridCount; j++)
+	{
+		float2 tempXY = coord * dim.xy;
+
+		tempXY += 0.5;
+		tempXY = rotateUV(tempXY, j*90.);
+		float r = 1;
+
+
+		float nAbs = lerp(r /(1-MinRadius),r,1-j);
+		float norm = lerp(r / (1 - MinRadius)*(1+MinRadius),r,1-j);
+		nAbs = r;
+		norm = r;
+		//nAbs = dim.w*dim.x
+		float y = 1 / clamp(Scale_factor, 0, 0.5) * 2;
+		float l = LineSegment(tempXY, float2(-y, 0.5), float2(y, 0.5));
+		l = LineSharpen(l, Thickness *zoom, dim.zw);
+		g += l;
+		for (uint i = 0; i <= (Rings - 1); i++) {
+			float uv_offset = 0.5*(1 + (j+1)*nAbs - (j + 1)*norm * ((float)i / Rings));
+			float l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			float draw = step(0.5, uv_offset);
+			l = LineSharpen(l, Thickness  *zoom, dim.zw);
+			g += l * draw;
+
+			uv_offset = 0.5*(1 - (j + 1)*nAbs + (j + 1)*norm * ((float)i / Rings));
+			l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			draw = step(uv_offset, 0.5);
+			l = LineSharpen(l, Thickness *zoom, dim.zw);
+			g += l * draw ;
+		}
+	}
+	return g;
+}
+
+/////////Kernels////////////
+
+[numthreads(16, 16, 1)]
+void RemapQuad(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim, n_dim;
+	n_dim = GetDimensionsFrom(Noise);
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float scale = 30;
+	float2 uperCoord = id.xy - float2(0, 1)*scale;
+	float2 lowerCoord = id.xy + float2(0, 0.15)*scale;
+	//Find Borders +-5pixels
+	float2 dy = float2(1, 0) * 3;
+	float lowerPixel = max(max(Source[uperCoord * d_dim.xy * s_dim.zw].r, Source[(uperCoord - dy) * d_dim.xy * s_dim.zw].r), Source[(uperCoord + dy)* d_dim.xy * s_dim.zw].r);
+	lowerPixel = Source[uperCoord * d_dim.xy * s_dim.zw].r;
+	float upperPixel = Source[lowerCoord * d_dim.xy * s_dim.zw].r;
+	float grad = upperPixel - lowerPixel;
+	//Color them
+	float depth = grad * step(min(upperPixel, lowerPixel), 0.00)*step(max(upperPixel, lowerPixel), 0.2);
+	depth = 1 - step(depth, 0.05);
+	//
+	float col = 0;
+	if (depth > 0) {
+
+		for (float i = 0; i < scale; i++) {
+			float2 blurUV = lerp(lowerCoord, uperCoord, i / scale);
+			col += 2 * Source[blurUV].r;
+		}
+		col /= scale;
+	}
+	//col = remap(0, 1, 0, 0.3, col);
+	float2 uv = id.xy * d_dim.xy * s_dim.zw;
+
+	float2 n_uv = frac(id.xy* d_dim.xy) * n_dim.zw;
+	
+	float temp_n = Source[uv].r * col;
+	temp_n = lerp(Source[uv].r, temp_n, clamp(depth, 0, 1));
+	temp_n = max(temp_n, Source[uv].r);
+	float alpha = 1 - step(temp_n, 0.01);
+	alpha = clamp(temp_n, 0, 0.2);
+	alpha = remap(0, 1, 0, 0.2, alpha);
+	float tempDest = lerp(Noise[n_uv], temp_n, temp_n).r;
+	tempDest = lerp(Noise[n_uv], temp_n, alpha).r;
+	//tempDest = max(Noise[n_uv], temp_n);
+	//tempDest *= lerp(0, 10 / Range, clamp(id.y*s_dim.y,0,10/Range));
+
+	Destination[id.xy] = tempDest;// +tempDest * 0.25 * (2 * rand(id.xy) - 1)*step(0.01, tempDest);
+	//Destination[id.xy] =  Source[uv].r;
+	//Destination[id.xy] = lerp(Noise[n_uv], temp_n, alpha);
+}
+
+[numthreads(32, 32, 1)]
+void RenderInPolar(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	//Destination[id.xy] = Source[id.xy * d_dim.xy * s_dim.zw];
+	//Destination[id.xy] = SampleBilinear(Source, id.xy*d_dim.xy, s_dim, sign(DiscreteAngleStep)).r;
+	//Destination[id.xy] = SampleLinearY(Source, id.xy*d_dim.xy, s_dim).r;
+	float depth;
+
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+
+	float radius_uv_y = id.y*d_dim.y;
+	float remappedRadius = remap(MinRadius, MaxRadius, 0, 1, id.y*d_dim.y);
+	float2 coord = float2(id.x*d_dim.x, remappedRadius)*s_dim.zw;
+
+	depth = SampleBilinear(Source, coord*s_dim.xy, s_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y + 0.01);
+
+	float grid = DrawGridPolar(id.xy -float2(d_dim.z/2,0), d_dim, 1 / Scale_factor)*step(MinimumRange, radius_uv_y + 0.01);
+	float4 Scolor = float4(LerpColorPixels(pow(depth, Gamma)), 1);
+
+	float2 center = (MouseCoords*d_dim.zw);
+	float2 zoom_wh = ZoomBox / 2 * ZoomParams.x / 100;
+	float hollow = BoxSize;
+	float box = sdBox(id.xy - center, zoom_wh, hollow)*ApplyZoom;
+
+	float4 color = lerp(Scolor, _GridColor, grid*_GridColor.w);
+
+	color = lerp(color, BoxColor, box);
+	Destination[id.xy] = pow(color, 2.2);
+}
+
+[numthreads(32, 32, 1)]
+void RenderInCartesian(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.14159265359;
+	float4 s_dim,d_dim; 
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	
+	float minRes = min(d_dim.z, d_dim.w);
+
+	float2 uv_from_center = float2(id.xy - 0.5 *d_dim.zw);
+	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, d_dim);
+	float radius_uv_y;
+	float pixel_angle;
+	GetAngleCoordAndRadiusUV(uv_from_center / minRes, radius_uv_y, pixel_angle);
+
+
+	//radius_uv_y *= step(radius_uv_y,MaxRadius);
+	pixel_angle -= (Rotation + 90-HorisontalFOV / 2)%360;
+	pixel_angle  = (360+pixel_angle)% 360;
+	//Draw Rings
+	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
+	float rings = (1 - step(Thickness *5 /Scale_factor * Rings, 1 - frac(ringsMain)));
+	
+	//Draw Cross
+	float cross = DrawCross(uv_from_center,d_dim, 1 / Scale_factor);
+	float main = cross ;
+
+	//Draw Sector Rings and Lines
+	float sector = DrawSector(uv_from_center / minRes, float2(pixel_angle,radius_uv_y), d_dim, ringsMain, 1 / Scale_factor);
+	sector *= ShowSector ;
+
+	//DrawZoomWindow
+	float2 center = (MouseCoords*d_dim.zw);
+	float2 zoom_wh = ZoomBox / 2 * ZoomParams.x  / 100;
+	float hollow = BoxSize;
+	float box = sdBox(id.xy - center, zoom_wh, hollow)*ApplyZoom;
+
+	//pixel_angle = x;	
+	float remapped_radius = remap(MinRadius, MaxRadius, 0, 1, radius_uv_y);
+	//Scale_UV(id.xy - center, Offset, 1, d_dim)
+	float depth = Source[float2(pixel_angle / HorisontalFOV , remapped_radius)*s_dim.zw].r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
+	//depth = Source.SampleLevel(_BilinearClamp,float2(pixel_angle / HorisontalFOV, radius_uv_y), 0)*step(radius_uv_y, MaxRadius)*step(0,pixel_angle / HorisontalFOV);
+	
+	depth = SampleBilinear(Source, float2(pixel_angle / HorisontalFOV, remapped_radius)*s_dim.zw*d_dim.xy, d_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
+
+	//pixel_angle = remap(0, 1, Zoom_angle1, Zoom_angle2, pixel_angle / 130);
+	//depth = pixel_angle;
+	//depth += depth *0.1* (2 * rand(id.xy) - 1)*step(0.01, depth);
+	float4 Scolor = float4(LerpColorPixels(pow(depth,Gamma)),1);
+	
+	float4 color = lerp(Scolor, _GridColor, (main+sector)*_GridColor.w);
+	
+	color = lerp(color, BoxColor, box);
+	Destination[id.xy] = pow(color, 2.2);
+}
+
+
+float2 OriginTexWH;
+
+
+[numthreads(32, 32, 1)]
+void Zoom_RenderInPolar(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	const float UNITY_PI = 3.1415;
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float4 dim = float4(1 / OriginTexWH, OriginTexWH);
+
+	float2 Boxcenter = MouseCoords * OriginTexWH;
+	float zoom = ZoomParams.x / 100;
+	float2 LBCorner = Boxcenter - ZoomBox / 2 * zoom;
+	float2 coord = float2(id.x + Zoom_angle1 * s_dim.z, id.y);
+	coord = id.xy;
+	float2 relUV = (LBCorner + coord * zoom)/OriginTexWH;
+	float minRes = min(OriginTexWH.x, OriginTexWH.y);
+
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+
+	float radius_uv_y = relUV.y;
+//	float2 coord = float2(id.x*d_dim.x, radius_uv_y)*s_dim.zw;
+
+	float pixel_angle = remap(0, 1, Zoom_angle1, Zoom_angle2, relUV.x);
+	pixel_angle = id.x*d_dim.x;
+	float remappedRadius = remap(MinRadius, MaxRadius, 0, 1, relUV.y);
+	float depth = Source[float2((pixel_angle), remappedRadius)*s_dim.zw].r*step(radius_uv_y, MaxRadius)*step(MinimumRange, radius_uv_y + 0.01);
+	//depth += depth *0.1* (2 * rand(id.xy) - 1)*step(0.01, depth);
+
+	float grid = DrawGridPolar(relUV*OriginTexWH -float2(OriginTexWH.x/2,0), dim, zoom)*step(MinimumRange, radius_uv_y + 0.01);
+	float4 Scolor = float4(LerpColorPixels(pow(depth, Gamma)), 1);
+
+	float4 color = lerp(Scolor, _GridColor, (grid)*_GridColor.w);
+
+	Destination[id.xy] = pow(color, 2.2);
+}
+
+[numthreads(32, 32, 1)]
+void Zoom_RenderInCartesian(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.1415;
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	
+	float4 dim = float4(1 / OriginTexWH, OriginTexWH);
+
+	float2 Boxcenter = MouseCoords * OriginTexWH;
+	float zoom = ZoomParams.x / 100;
+	float2 LBCorner = Boxcenter - ZoomBox /2 *zoom ;
+	float2 coord = float2(id.x + Zoom_angle1 * s_dim.z, id.y);
+	coord = id.xy;
+	float2 relUV = (LBCorner + coord *zoom);
+	float minRes = min(OriginTexWH.x, OriginTexWH.y);
+
+
+
+	float2 uv_from_center = float2(relUV - 0.5 *OriginTexWH);
+	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, dim);
+	float radius_uv_y;
+	float pixel_angle;
+	GetAngleCoordAndRadiusUV(uv_from_center / minRes, radius_uv_y, pixel_angle);
+
+	pixel_angle -= (Rotation + 90 - HorisontalFOV / 2) % 360;
+	pixel_angle = (360 + pixel_angle) % 360;
+	//Draw Rings
+	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
+	float rings = (1 - step(Thickness*5*zoom*Rings, 1 - frac(ringsMain)));
+
+	//Draw Spinning Line
+	float pc = (CurrentRotAngle) / 57.29;
+	float2 cosin = float2(sin(pc), cos(pc));
+
+	float l = LineSegment(uv_from_center / minRes, float2(0, 0), cosin);
+
+	l = LineSharpen(l, Thickness  *zoom, dim.zw);
+
+
+	//Draw Cross
+	float cross = DrawCross(uv_from_center, dim, zoom*2);
+
+
+	//Draw Sector Rings and Lines
+	float sector = DrawSector(uv_from_center / minRes, float2(pixel_angle, radius_uv_y), dim, ringsMain, zoom);
+	sector *= ShowSector;
+
+	pixel_angle /= HorisontalFOV;
+	float depth;
+	//pixel_angle = remap(0.0, 1, Zoom_angle1, Zoom_angle2, pixel_angle);
+	pixel_angle = remap(0, 1, Zoom_angle1, Zoom_angle2, pixel_angle );
+
+	float remapped_radius = remap(MinRadius, MaxRadius, 0, 1, radius_uv_y);
+	depth = Source[float2((pixel_angle) , remapped_radius)*s_dim.zw].r*step(radius_uv_y, MaxRadius)*step(MinimumRange, radius_uv_y);
+
+	float4 Scolor = float4(LerpColorPixels(pow(depth, Gamma)), 1);
+	float4 color = lerp(Scolor, _GridColor, (sector )*_GridColor.w); 
+	Destination[id.xy] = pow(color, 2.2);
+}
+

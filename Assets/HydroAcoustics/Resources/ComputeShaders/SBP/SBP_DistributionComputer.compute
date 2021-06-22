@@ -1,0 +1,216 @@
+﻿#pragma kernel MapDepthToQuadProfiler
+#pragma kernel MapNoiseToQuadSonar
+#pragma kernel ClearBuffer
+#pragma kernel ClearTextureStrip
+
+#include "../SonarsDistributionBase.cginc"
+Texture2D<float4> Source;
+RWTexture2D<float4> Destination;
+RWStructuredBuffer<float> DistanceBuffer;
+
+float Gain, NoiseUpperWideness, NoiseLowerWideness;
+
+float4 Noise12_Scale_Bias;
+float AboveBot_Noise_Scale_X,BelowBot_Noise_Scale_X;
+float AboveBot_Noise_Gain_Mult, BelowBot_Noise_Gain_Mult;
+float2 Noise_Refl_Min_Max;
+float MaxDistance;
+float SB_Pattern_Scroll_Speed, Noise_Pattern_Scroll;
+float4 WorldPosRot;
+float Time;
+float uv_X, uv_W;
+
+float2 GetQuadUV(float scroll, float radius,float2 dim) 
+{
+	float2 uv = float2(dim.x-scroll, radius * dim.y);
+	return uv;
+}
+
+
+void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
+{
+	uv.y += 0.5;
+	float2 y_min_max = float2(floor(uv.y) - 0.5, floor(uv.y) + 0.5);
+
+	float uv_frac = 1 - frac(uv.y);
+
+	float2 uv1 = float2(uv.x, y_min_max.x);
+	float2 uv2 = float2(uv.x, y_min_max.y);
+	
+	float scroll1 = dim.x - uv1.x + 1;
+	float scroll2 = dim.x - uv2.x + 1;
+	if (DistanceBuffer[uv1.y] > max) return;
+	DistanceBuffer[uv1.y] += uv_frac * color;
+	DistanceBuffer[uv2.y] += uv_frac * color;
+	//
+	float val1 = clamp(DistanceBuffer[uv1.y], 0, gain * 5);
+	val1 = DistanceBuffer[uv1.y];
+	float val2 = clamp(DistanceBuffer[uv2.y], 0, gain * 5);
+	val2 = DistanceBuffer[uv2.y];
+	//val1 = remap(0, max, 0, gain * 5, val1);
+	//val2 = remap(0, max, 0, gain * 5, val2);
+	Destination[uv1] = val1 + val1 * 0.1* (2 * rand(uv1) - 1);
+	Destination[uv2] = val2 + val1 * 0.1* (2 * rand(uv2) - 1);
+}
+
+
+[numthreads(16, 16, 1)]
+void MapDepthToQuadProfiler(uint2 id : SV_DispatchThreadID)
+	// = GroupID * numthreads + GroupThreadID
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+
+	float2 d_dim;
+	Destination.GetDimensions(d_dim.x, d_dim.y);
+
+
+	float4 objProperties = Source[id.xy];
+	float4 wp = float4(Time, 0, Time, 0);
+	wp = WorldPosRot;
+	float2 n_uv = GetNoiseUVrelativeToWorld(id.xy*s_dim.xy, wp, 1, SB_Pattern_Scroll_Speed);//+float2(Time,Time)
+
+	float ran = rand(id.xy);
+
+	float layers_radius, bot_radius;
+
+	layers_radius = smoothNoise((n_uv*Noise12_Scale_Bias.x));
+	layers_radius = lerp(layers_radius, warpedNoise(n_uv*Noise12_Scale_Bias.x, WorldPosRot), ran);
+	layers_radius = 1.5*clamp(layers_radius - 0.2, 0, 4) - (fractal((float2(n_uv + 10))))*0.15;
+	layers_radius = bias(layers_radius, Noise12_Scale_Bias.z);
+	//
+	bot_radius = fractal((float2(n_uv - 10)*Noise12_Scale_Bias.y));
+	bot_radius = bias(bot_radius, Noise12_Scale_Bias.w);
+
+
+	float wideness = objProperties.z / MaxDistance;
+	
+	float lfhf = step(ran, 0.5);
+	float rad = lerp(bot_radius, layers_radius , lfhf);//;//	 -0.2*(2 * noise_radius - 1);
+	float radius = (1-objProperties.x) - 2*wideness*rad;// *(1 + NoiseWideness / 12 * (2 * delta01Noise - 1)*0.1);
+	float2 uv = GetQuadUV(1, radius, d_dim);
+
+	//float m1 = 1-remap(1, 0, 90, 180, clamp(d_dim.x, 90, 180));
+	//float m2 = 1-remap(0, 1, 180, 720, clamp(d_dim.x, 180, 720));
+	//float res_m = lerp(1,0.39, m1) * step(d_dim.x, 179) + lerp(0.39,0.13,1-m2*m2*m2) * step(180, d_dim.x);
+	float m2 = remap(0, 1, 360, 720, clamp(d_dim.y, 360, 720));
+	float res_m = lerp(3, 1, m2);
+	float g = (0.1 + Gain + lerp(0, 0.5, 1 - radius*radius) / 10)*0.3*res_m ;// *(res_m);
+
+
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+
+	float n_refl;
+	n_refl = warpedNoise(float2(Time/10,radius*10)/2,wp);
+	n_refl = clamp(n_refl, 0, 1);
+
+	float n1 = warpedNoise(wp.xy/10 + float2(0, rad *5), wp);
+	float n2 = 1 - warpedNoise((wp.xy/10 + float2(0, rad *10) + 10), wp);
+	float n = min(n1, n2);
+	
+	n = (n1*0.7 + n2 * 0.3);
+	n = remap(0.15, objProperties.y, 0.15, 0.7, clamp(n, 0.15, 0.7));
+	n = lerp(objProperties.y, n, remap(0, 1, 0, 0.15, clamp(rad, 0, 0.15)));
+	n = lerp(0, n, remap(1, 0, 0.7, 1, clamp(rad, 0.7, 1)));
+	n_refl = n;
+	n_refl = n_refl + n_refl * 0.2 * (rand(id.yx) - 0.6);
+	g *= n_refl;
+	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
+	
+	BilinearColorPixels(uv,	g*g, d_dim, n_refl, g);
+
+
+}
+
+
+[numthreads(16, 16, 1)]
+void MapNoiseToQuadSonar(uint2 id : SV_DispatchThreadID)
+// = GroupID * numthreads + GroupThreadID
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+
+	float2 d_dim;
+	Destination.GetDimensions(d_dim.x, d_dim.y);
+
+	float4 objProperties = Source[id.xy];
+	float4 wp = float4(Time, 0, Time, 0);
+	wp = WorldPosRot;
+	float2 above_c = float2(id.x*AboveBot_Noise_Scale_X, id.y)*s_dim.xy;
+	float2 below_c = float2(id.x*BelowBot_Noise_Scale_X, id.y)*s_dim.xy;
+	float2 n_above_uv = GetNoiseUVrelativeToWorld(above_c, wp, 1, Noise_Pattern_Scroll);
+	float2 n_below_uv = GetNoiseUVrelativeToWorld(below_c, wp, 1, 2*Noise_Pattern_Scroll);
+
+
+	float above_below = step(rand(id.xy),0.5);
+	float  noise_radius,n_above,n_below;
+
+	n_above = warpedNoise((float2(n_above_uv))*0.3, wp) * 0.4166 + fractal((float2(n_above_uv + 10))) * 0.583333333;
+	n_below = warpedNoise((float2(n_below_uv))*0.3, wp) * 0.4166 + fractal((float2(n_below_uv + 10))) * 0.583333333;
+
+	noise_radius = lerp(n_above*NoiseUpperWideness, (n_below+0.05)*NoiseLowerWideness, above_below);
+	
+	noise_radius = clamp(noise_radius, 0.3, 0.75);
+	//clamp noise in range (0-1)
+	noise_radius -= 0.3;
+	noise_radius /= 0.45;
+	
+	noise_radius = bias(noise_radius, 0.25);
+	float radius = ((1 - objProperties.x) + (1-2*above_below)*(noise_radius));
+
+	float2 uv = GetQuadUV(1, radius, d_dim);
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+
+	float n_refl;
+
+
+	
+	float n1 = warpedNoise((wp.xz*0.1+ float2(0, noise_radius)), wp);
+	float n2 = 1-warpedNoise((wp.xz*0.4 + rand(float2(0, noise_radius*5)+10)), wp);
+	
+	n_refl = (n1*0.7 + n2 * 0.3);
+	n_refl = min(n1, n2);
+	//n_refl = 1;
+	n_refl = n_refl + n_refl * 0.5 * (rand(id.yx) - 0.6);
+	n_refl = remap(Noise_Refl_Min_Max.x, Noise_Refl_Min_Max.y, 0.1, 0.75, clamp(n_refl, 0.1, 0.75));
+	float m2 = remap(0, 1, 360, 720, clamp(d_dim.y, 360, 720));
+	float res_m = lerp(3, 1, m2);
+	float g = (0.1 + Gain)*lerp(AboveBot_Noise_Gain_Mult, BelowBot_Noise_Gain_Mult, above_below)*0.3 *(res_m);
+
+	GroupMemoryBarrier();
+	GroupMemoryBarrierWithGroupSync();
+	BilinearColorPixels(uv, g*g, d_dim, n_refl, g);
+
+
+}
+
+[numthreads(1024, 1, 1)]
+void ClearBuffer(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	DistanceBuffer[id.x] = 0;
+}
+
+[numthreads(2, 180, 1)]
+void ClearTextureStrip(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{	
+	float4 d_dim;
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	if (id.x ==1)
+		Destination[id.xy] = 0;
+}
+
+
+
+
+
+

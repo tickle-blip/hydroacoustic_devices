@@ -1,0 +1,667 @@
+﻿#pragma kernel MapBeamDistanceData
+#pragma kernel MapBeamNoiseDistanceData
+
+#pragma kernel FillSideScanStrip
+#pragma kernel FillSnippetsStrip
+
+#pragma kernel ClearBuffer
+#pragma kernel ClearBeamBuffer
+
+#pragma kernel ComputeDetect
+#include "../SonarsDistributionBase.cginc"
+Texture2D<float4> Source;
+RWTexture2D<float4> Destination;
+
+RWStructuredBuffer<float> DistanceBuffer;
+//uint reflectivity
+
+Texture2D<float4> Noise1;
+Texture2D<float4> Noise2;
+float Zoom_angle1, Zoom_angle2;
+float Gain, TVG, NoiseWideness, NoisePatternScroll, BlindZoneRadius, HorisontalFOV,VerticalFOV;
+float4 Noise12_Scale_Bias;
+float Range;
+float4 WorldPosRot;
+float TopNoiseTreshold;
+float BottomNoiseTreshold;
+
+//Flex Mode
+float BeamCount;
+float BeamCount_left, BeamCount_mid;
+float LeftUVBorder, RightUVBorder;
+float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
+float FlexModeEnabled;
+//Distance, Color, uv.x
+RWStructuredBuffer<uint2> BeamBuffer;
+StructuredBuffer<float> R_BeamBuffer;
+
+void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
+{
+	uv.y += 0.5;
+	float2 y_min_max = float2(floor(uv.y) - 0.5, floor(uv.y) + 0.5);
+
+	float uv_frac = 1-frac(uv.y);
+
+	float2 uv1 = float2(uv.x, y_min_max.x);
+	float2 uv2 = float2(uv.x, y_min_max.y);
+	if (DistanceBuffer[uv1.x + uv1.y*dim.x] > gain*5 ) return;
+	DistanceBuffer[uv1.x + uv1.y*dim.x] += uv_frac*color;
+	DistanceBuffer[uv2.x + uv2.y*dim.x] += uv_frac*color;
+	
+	float val1 = clamp(DistanceBuffer[uv1.x + uv1.y*dim.x], 0, gain*5);
+	float val2 = clamp(DistanceBuffer[uv2.x + uv2.y*dim.x], 0, gain*5);
+	val1 =remap(0,max,0,gain*5, val1);
+	val2 =remap(0,max,0,gain*5,val2);
+	//Destination[uv1] = DistanceBuffer[uv1.x + uv1.y*dim.x];
+	//Destination[uv2] = DistanceBuffer[uv2.x + uv2.y*dim.x];
+	Destination[uv1] = val1 +val1 * 0.2* (2 * rand(uv1) - 1);
+	Destination[uv2] = val2 +val1 * 0.2* (2 * rand(uv2) - 1);
+}
+
+
+void LinearColorPixels1(float2 uv, float color, float2 dim, float max, float gain)
+{
+	float val;// = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+	val = DistanceBuffer[uv.x + uv.y*dim.x];
+	if (val < max) {
+		DistanceBuffer[uv.x + uv.y*dim.x] += color;
+		Destination[uv] = (val + color)*(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
+	}
+	/*
+	if (DistanceBuffer[uv.x + uv.y*dim.x] > max) return;
+	DistanceBuffer[uv.x + uv.y*dim.x] += color;
+
+	float val1 = clamp(DistanceBuffer[uv.x + uv.y*dim.x], 0, gain *100);
+	val1 = remap(0, max, 0, gain * 5, val1);
+	val1 = DistanceBuffer[uv.x + uv.y*dim.x];
+	//Destination[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
+	Destination[uv] = val1 *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));*/
+}
+/*
+void LinearColorPixels(float2 uv, float color, float2 dim, uint m, float gain)
+{
+
+	//if (DistanceBuffer[uv.x + uv.y*dim.x] > max) return;
+	//float val = BeamBuffer[uv.x + uv.y*dim.x];
+	//BeamBuffer[uv.x + uv.y*dim.x] = max(val, m);
+	//val = BeamBuffer[uv.x + uv.y*dim.x];
+	//
+
+	InterlockedMax(BeamBuffer[uv.x], m);
+	//Destination[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
+	//Destination[uv] = float(BeamBuffer[uv.x + uv.y*dim.x]) / 10000;// *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
+}
+*/
+void ColorBeam(float2 uv, float color, float2 dim, float max, float gain)
+{
+
+	if (DistanceBuffer[uv.x + uv.y*dim.x] < max) 
+	{
+	DistanceBuffer[uv.x + uv.y*dim.x] += color;
+
+	float val1 = DistanceBuffer[uv.x + uv.y*dim.x];
+	Destination[uv] = val1;// +val1 * 0.1* (2 * rand(uv) - 1);
+//	Destination[uv] = val1 * (1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
+	}
+}
+
+
+
+[numthreads(16, 16, 1)]
+void MapNoiseToQuadSonar(uint2 id : SV_DispatchThreadID)
+// = GroupID * numthreads + GroupThreadID
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	float4 n_dim;
+	n_dim = GetDimensionsFrom(Noise2);
+	float4 n_main_dim;
+	n_main_dim = GetDimensionsFrom(Noise1);
+	float2 d_dim;
+	Destination.GetDimensions(d_dim.x, d_dim.y);
+
+	float ran = rand(id.xy);
+
+	float2 coords = float2(id.xy*s_dim.xy);
+	coords.x = remap(Zoom_angle1, Zoom_angle2, 0, 1, coords.x);
+	coords = PaniniProjectionScreenPosition(coords * 2 - 1, HorisontalFOV) + 0.5;
+	coords.x = remap(0, 1, PaniniProjectionScreenPosition(2 * Zoom_angle1 - 1, HorisontalFOV).x + 0.5, PaniniProjectionScreenPosition(2 * Zoom_angle2 - 1, HorisontalFOV).x + 0.5, coords.x);
+	float pixel_angle = (coords.x);
+	float sc = lerp(1, 2, 1- (Range-2) / 300);
+	float2 n1_uv_sample = GetNoiseUVrelativeToWorld(float2(coords.x,id.y*s_dim.y), WorldPosRot, 1, NoisePatternScroll);
+	float2 n2_uv_sample = GetNoiseUVrelativeToWorld(float2(coords.x, id.y*s_dim.y), float4(-1, 1, 1, 1)*WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
+	
+	
+
+
+	float n1_radius, n2_radius;
+
+	n1_radius = smoothNoise((n1_uv_sample*Noise12_Scale_Bias.x));
+
+	n2_radius = warpedNoise((float2(frac(n2_uv_sample + 0.5))*Noise12_Scale_Bias.y), WorldPosRot);
+	n2_radius = remap(0, 1, 0.2, 0.8, n2_radius);
+	n1_radius *= (1 + NoiseWideness/10  *(2 * ran - 1)*0.1);
+	n1_radius = bias(n1_radius, Noise12_Scale_Bias.z);
+	n2_radius = bias(n2_radius, Noise12_Scale_Bias.w);
+
+	float2 n1_uv = float2(pixel_angle, n1_radius)*d_dim;
+	float2 n2_uv = float2(pixel_angle, n2_radius)*d_dim;
+
+	float4 DRWB = Source[id.xy];
+
+	float t = (1 - DRWB.x);
+	t = clamp(t, 0.5, 1);
+	t = remap(0, 0.6, 0.5, 1, t);
+
+	float wideness = lerp(0, 10*DRWB.z, t*t)*step(DRWB.y*(1-DRWB.x),0.4);
+	float internalWideness = 0.01;
+	float radius_noised = DRWB.x *(1 - wideness * (ran) +internalWideness * (ran ));
+
+	float2 coord_noised = float2(pixel_angle, radius_noised)*d_dim;
+
+	coord_noised.x += 4*(2*ran - 1)*step(DRWB.y, 0.4);
+
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+
+	t = (1 - DRWB.x);
+	float oRefl = DRWB.y;
+
+	float reflectivity = clamp(oRefl*lerp(0, 1, t) + lerp(0, TVG, DRWB.x*DRWB.x) / 10, 0, oRefl);
+	
+	float blindZone = clamp(remap(BottomNoiseTreshold, TopNoiseTreshold, 10, 20, clamp(VerticalFOV,10,20)) / Range, 0, 1);
+	float c = remap(rand(id.xy), 0, blindZone - 0.05, blindZone + 0.05, clamp(radius_noised, blindZone - 0.05, blindZone + 0.05));
+	reflectivity *= c;
+
+	Gain = 0.25 + Gain * (1 + remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440))*remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440)));
+
+	//BilinearColorPixels(coord_noised,  5*Gain*Gain, d_dim, reflectivity, Gain);
+	t = 1-n1_radius;
+	oRefl = max( 0.1, Gain);
+	reflectivity = clamp(oRefl*t + lerp(0, TVG, n1_radius*n1_radius) / 10, 0, oRefl);
+	
+	//Noise
+	BilinearColorPixels(n1_uv, Gain* Gain*Gain, d_dim, reflectivity, Gain);
+	
+	t = 1 - n2_radius;
+	oRefl = clamp(oRefl, 0.1, 0.15);
+	reflectivity = clamp(oRefl*t + lerp(0, TVG, n2_radius*n2_radius) / 10, 0, oRefl);
+	BilinearColorPixels(n2_uv, Gain*Gain*Gain, d_dim, reflectivity, Gain);
+}
+
+
+[numthreads(1024, 1, 1)]
+void ClearBuffer(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	DistanceBuffer[id.x] = 0;
+}
+
+
+
+
+
+[numthreads(512, 1, 1)]
+void ClearBeamBuffer(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	uint maxUint = 0xffffffff;
+	BeamBuffer[id.x] = uint3(0,0, 0);
+}
+
+float Equidistant(float2 Coordinates,float FOV)
+{
+	if (FOV == 0.0) return 1.0; // Bypass
+	float rFOVh = radians(FOV*0.5);
+	float R = length(Coordinates);
+	return tan(R*rFOVh) / (tan(rFOVh)*R);
+}
+float Stereographic(float2 Coordinates,float FOV)
+{
+	if (FOV == 0.0) return 1.0; // Bypass
+	// Convert 1/4 FOV to radians and calc tangent squared
+	float SqrTanFOVq = pow(tan(radians(FOV * 0.25)), 2.0);
+	float R2 = dot(Coordinates, Coordinates);
+	return (1.0 - SqrTanFOVq) / (1.0 - SqrTanFOVq * R2);
+}
+float Equisolid(float2 Coordinates,float FOV)
+{
+	if (FOV == 0.0) return 1.0; // Bypass
+	float rFOV = radians(FOV);
+	float R = length(Coordinates)/1.4;
+	return tan(asin(sin(rFOV*0.25)*R)*2) / (tan(rFOV*0.5)*R);
+}
+
+
+
+//DistanceTexture width is fixed = 512
+//NumGroups(BeamCount,1,1)
+[numthreads(1, 32, 1)]
+void MapBeamNoiseDistanceData(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+
+	//Distance Texture
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+
+	//BeamTexture. width= num_beams, height = 512
+	float4 d_dim;
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float beam_num = id.x;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+	startUV = FlexModeEnabled * startUV;
+
+	float flexX = (0.5 + leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)))*s_dim.x;
+	flexX = ((flexX)*B_density + startUV);
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x*d_dim.x);
+	//coordX = id.x*d_dim.x;
+	//TOUGH Correction
+	coordX = PaniniYfromX(coordX,HorisontalFOV);
+
+	coordX *= s_dim.z;
+
+	int NumOfSamples = int(s_dim.z / d_dim.z);
+
+	float2 dx = float2(1, 0);
+	float2 dest_uv = id.xy*d_dim.xy*s_dim.zw;
+	dest_uv.x = coordX;
+	dest_uv.y = id.y;
+
+	float ran = rand(id.xy);
+	float2 sample_uv;
+	float2 distance_Samples[8];
+	float2 noise_Samples[8];
+
+
+	Gain = 0.25 + Gain*0.75;
+	float oRefl;
+	for (int i = 0; i < NumOfSamples; i++) 
+	{
+		sample_uv = dest_uv + dx * i;
+
+
+
+		float sc = lerp(1, 2, 1 - (Range - 2) / 300);
+		float2 n1_uv_sample = GetNoiseUVrelativeToWorld(sample_uv*s_dim.xy, WorldPosRot, 1, NoisePatternScroll);
+		float2 n2_uv_sample = GetNoiseUVrelativeToWorld(sample_uv*s_dim.xy, float4(-1, 1, 1, 1)*WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
+
+		float n1_radius, n2_radius;
+
+		n1_radius = smoothNoise((n1_uv_sample*Noise12_Scale_Bias.x));
+
+		n2_radius = warpedNoise((float2(frac(n2_uv_sample + 0.5))*Noise12_Scale_Bias.y), WorldPosRot);
+		n2_radius = remap(0, 1, 0.2, 0.8, n2_radius);
+		n1_radius *= (1 + (NoiseWideness / 1 * (2 * ran - 1)*0.1));
+		//n2_radius *= (1 + NoiseWideness / 5 * (2 * ran - 1)*0.1);
+		n1_radius = bias(n1_radius, Noise12_Scale_Bias.z);
+		n2_radius = bias(n2_radius, Noise12_Scale_Bias.w);
+
+		oRefl = max(0.1, Gain);
+		
+		float flag = step(ran, 0.5);
+		float r = lerp(n1_radius, n2_radius, flag);
+		distance_Samples[i] = float2(r, oRefl*rand(id.yy));
+		//distance_Samples[i] = 0;
+		noise_Samples[i] = float2(Source[sample_uv].x*(1 + 0.00*(2 * smoothNoise(dest_uv) - 1)), Source[sample_uv].y);
+		
+	}
+	//Fill Beam Texture
+	for (int i = 0; i < NumOfSamples; i++) {
+
+		float t, refl,val,val_m;
+
+		val = val_m = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+		oRefl = noise_Samples[i].y;
+		t = 1 - noise_Samples[i].x;
+		//t = remap(0.5, 1, 0, 1, t);
+		refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, noise_Samples[i].x) / 10, 0, oRefl);
+
+		//if (val_m < refl) {
+		//	Destination[float2(id.x, (noise_Samples[i].x)*d_dim.w)] = (val_m + (Gain*refl));
+		//}
+		//ColorBeam(float2(id.x, (noise_Samples[i].x)*d_dim.w), Gain*refl, d_dim.zw, refl, Gain);
+
+		
+		oRefl = distance_Samples[i].y;
+		 t = 1-distance_Samples[i].x;
+		//t = remap(0.5, 1, 0, 1, t);
+		 refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
+		 if (val < refl) {	
+			 Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = (val + (Gain*Gain*refl));
+		 }
+		//ColorBeam(float2(id.x, (distance_Samples[i].x)*d_dim.w), Gain*Gain*refl, d_dim.zw, refl, Gain);
+
+		
+
+	}
+}
+
+
+//DistanceTexture width is fixed = 512
+//NumGroups(BeamCount,1,1)
+[numthreads(1, 32, 1)]
+void MapBeamDistanceData(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	//Distance Texture
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+
+	//BeamTexture. width= num_beams, height = 512
+	float4 d_dim;
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float beam_num = id.x;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+	startUV = FlexModeEnabled * startUV;
+
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)))*s_dim.x;
+	flexX = ((flexX)*B_density + startUV);
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x*d_dim.x);
+	//coordX = id.x*d_dim.x;
+	//TOUGH Correction
+	coordX = PaniniYfromX(coordX, HorisontalFOV);
+
+	coordX *= s_dim.z;
+	//coordX -= 0.5;
+	int NumOfSamples = int(s_dim.z / d_dim.z);
+
+	float2 dx = float2(1, 0);
+	float2 dest_uv = id.xy*d_dim.xy*s_dim.zw;
+	dest_uv.x = coordX;
+	dest_uv.y = id.y;
+
+
+
+	float2 sample_uv;
+	float2 distance_Samples[8];
+	for (int i = 0; i < NumOfSamples; i++)
+	{
+		sample_uv = dest_uv + dx * i;
+		distance_Samples[i] = float2(Source[sample_uv].x*(1 + 0.00*(2 * smoothNoise(dest_uv) - 1)), Source[sample_uv].y);
+	}
+	//Fill Beam Texture
+	Gain = 0.25 + Gain*0.75;
+	for (int i = 0; i < NumOfSamples; i++) {
+		float oRefl = distance_Samples[i].y;
+		float t = 1 - distance_Samples[i].x;
+		//t = remap(0.5, 1, 0, 1, t);
+		float refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
+		float val = Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)];
+		//if (val > refl) return;
+		//Destination[float2(id.x, (distance_Samples[i].x)*BeamCount)] = (val + (Gain*refl))*step(0,t);
+		val = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+		if (val < refl) {
+			Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = (val + (Gain*refl));
+		}
+		//ColorBeam(float2(id.x, (distance_Samples[i].x)*d_dim.w), Gain*refl, d_dim.zw, refl, Gain);
+	}
+}
+
+
+
+float SampleLinearY(Texture2D tex, float2 uv, float4 texelSize,float uv_frac) {
+
+	float2 uv_texels = uv * texelSize.zw;// +float2(0.5, 0);
+	float2 x_min_max = float2(floor(uv_texels.x)-0.5, floor(uv_texels.x) +0.5);
+	//uv_frac = frac(uv_texels.y);
+
+	float2 uv1 = float2(x_min_max.x, uv_texels.y);
+	float2 uv2 = float2(x_min_max.y, uv_texels.y);
+
+	float4 colorA = tex[uv1];
+	float4 colorB = tex[uv2];
+	return lerp(colorA, colorB, uv_frac).r;
+}
+
+
+
+[numthreads(16, 16, 1)]
+void FillSideScanStrip(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	float4 st_dim;
+	Destination.GetDimensions(st_dim.z, st_dim.w);
+	st_dim.xy = 1 / st_dim.zw;
+	//y - radius
+	//x - angle
+	float2 uv = id.xy*s_dim.xy;
+	//uv.x = 1 - uv.x;
+	float2 DRWB = Source[id.xy];
+	
+	//uv = uv - 0.5;
+	float a = step(0.5, uv.x);
+	//SideScan. писать в нулевой столбик или 1?
+	float angle = abs(uv.x - 0.5) * 2;
+	float cosa = sin(angle*HorisontalFOV / 2 / 57.34);
+
+	float tex_radius = DRWB.x *(1 + 0.01*rand(id.xy));
+
+	float r; float n_Refl;
+	//Noise
+	{
+		float sc = lerp(1, 2, 1 - (Range - 2) / 300);
+		float2 n1_uv_sample = GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll);
+		float2 n2_uv_sample = GetNoiseUVrelativeToWorld(uv, float4(-1, 1, 1, 1)*WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
+
+		float n1_radius, n2_radius;
+
+		n1_radius = smoothNoise((n1_uv_sample*Noise12_Scale_Bias.x));
+
+		n2_radius = warpedNoise((float2(frac(n2_uv_sample + 0.5))*Noise12_Scale_Bias.y), WorldPosRot);
+		n2_radius = remap(0, 1, 0.2, 0.8, n2_radius);
+		n1_radius *= (1 + (NoiseWideness / 1 * (2 * rand(id.xy) - 1)*0.1));
+		//n2_radius *= (1 + NoiseWideness / 5 * (2 * ran - 1)*0.1);
+		n1_radius = bias(n1_radius, Noise12_Scale_Bias.z);
+		n2_radius = bias(n2_radius, Noise12_Scale_Bias.w);
+
+		n_Refl = max(0.1, Gain)*rand(id.yy);
+
+		float noise_flag = step(rand(id.xy+100), 0.5);
+		r = lerp(n1_radius, n2_radius, noise_flag);
+	}
+
+	float tex_flag = step(rand(id.xy + 199), 0.5);
+
+	float radius = lerp(r, tex_radius, tex_flag);
+	float oRefl = lerp(n_Refl, DRWB.y, tex_flag);
+	
+
+	//radius = uv.y;
+	//float2 SS_uv = float2(lerp((1 - radius * cosa) / 2, (1 + radius * cosa) / 2, a), 0);
+	float2 SS_uv = float2(lerp((1 - radius) / 2, (1 + radius ) / 2, a), 0);
+	//SS_uv.x =radius;
+	SS_uv.y = 0;
+	//SS_coord = float2(0.5 + uv.y, 0)*st_dim.zw;
+	/*Destination[SS_coord] = max(Destination[SS_coord], DistVal);
+	//Destination[SS_coord] = DistVal;
+	//Snippets. писать в нулевой столбик или 1?
+
+	Destination_1[SN_coord] = max(Destination_1[SN_coord], DistVal);
+	*/
+
+	// *(1 + remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440))*remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440)));
+
+
+	float t = (1 - radius);
+	//t = remap(0.5, 1, 0, 1, t);
+	
+	
+	float reflectivity = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, radius) / 10, 0, oRefl);
+	
+	float leftZone = step(uv.x, LeftUVBorder);
+	float midZone = step(LeftUVBorder, uv.x)*step(uv.x, RightUVBorder);
+	float rightZone = step(RightUVBorder, uv.x);
+	
+	float BeamDensity = BeamCount_mid / BeamCount;
+	//Account of FlexMode
+	reflectivity *= (leftZone*(1 - BeamDensity + (BeamDensity)*smoothstep(1, -0.0, (LeftUVBorder - uv.x) / LeftUVBorder))
+			+ rightZone* (1 - BeamDensity + (BeamDensity)*smoothstep(1, -0.0, (uv.x - RightUVBorder) / (1 - RightUVBorder)))
+		+ midZone)*FlexModeEnabled+(1- FlexModeEnabled);
+	
+	float gain = (0.25 + Gain * 0.75);
+	gain = lerp(gain*gain, gain, tex_flag)*reflectivity;
+	LinearColorPixels1(SS_uv*st_dim.zw,  gain, st_dim.zw, reflectivity, Gain);
+}
+
+
+[numthreads(16, 16, 1)]
+void FillSnippetsStrip(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	float4 st_dim;
+	Destination.GetDimensions(st_dim.z, st_dim.w);
+	st_dim.xy = 1 / st_dim.zw;
+	//y - radius
+	//x - angle
+	float2 uv = id.xy*s_dim.xy;
+	//uv.x = 1 - uv.x;
+	float2 DRWB = Source[id.xy];
+
+	//uv = uv - 0.5;
+	float a = step(0.5, uv.x);
+	//SideScan. писать в нулевой столбик или 1?
+	float angle = abs(uv.x - 0.5) * 2;
+	float cosa = sin(angle*HorisontalFOV / 2 / 57.34);
+
+	float tex_radius = DRWB.x *(1 + 0.01*rand(id.xy));
+
+	float r; float n_Refl;
+	//Noise
+	{
+		float sc = lerp(1, 2, 1 - (Range - 2) / 300);
+		float2 n1_uv_sample = GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll);
+		float2 n2_uv_sample = GetNoiseUVrelativeToWorld(uv, float4(-1, 1, 1, 1)*WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
+
+		float n1_radius, n2_radius;
+
+		n1_radius = smoothNoise((n1_uv_sample*Noise12_Scale_Bias.x));
+
+		n2_radius = warpedNoise((float2(frac(n2_uv_sample + 0.5))*Noise12_Scale_Bias.y), WorldPosRot);
+		n2_radius = remap(0, 1, 0.2, 0.8, n2_radius);
+		n1_radius *= (1 + (NoiseWideness / 1 * (2 * rand(id.xy) - 1)*0.1));
+		//n2_radius *= (1 + NoiseWideness / 5 * (2 * ran - 1)*0.1);
+		n1_radius = bias(n1_radius, Noise12_Scale_Bias.z);
+		n2_radius = bias(n2_radius, Noise12_Scale_Bias.w);
+
+		n_Refl = max(0.1, Gain)*rand(id.yy);
+
+		float noise_flag = step(rand(id.xy + 100), 0.5);
+		r = lerp(n1_radius, n2_radius, noise_flag);
+	}
+
+	float tex_flag = step(rand(id.xy + 199), 0.5);
+
+	float radius = lerp(r, tex_radius, tex_flag);
+	float oRefl = lerp(n_Refl, DRWB.y, tex_flag);
+
+
+	//radius = uv.y;
+	float2 SS_uv = float2(lerp((1 - radius * cosa) / 2, (1 + radius * cosa) / 2, a), 0);
+	//float2 SS_uv = float2(lerp((1 - radius) / 2, (1 + radius ) / 2, a), 0);
+	//SS_uv.x =radius;
+	SS_uv.y = 0;
+	//SS_coord = float2(0.5 + uv.y, 0)*st_dim.zw;
+	/*Destination[SS_coord] = max(Destination[SS_coord], DistVal);
+	//Destination[SS_coord] = DistVal;
+	//Snippets. писать в нулевой столбик или 1?
+
+	Destination_1[SN_coord] = max(Destination_1[SN_coord], DistVal);
+	*/
+
+	// *(1 + remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440))*remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440)));
+
+
+	float t = (1 - radius);
+	//t = remap(0.5, 1, 0, 1, t);
+
+
+	float reflectivity = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, radius) / 10, 0, oRefl);
+
+	float leftZone = step(uv.x, LeftUVBorder);
+	float midZone = step(LeftUVBorder, uv.x)*step(uv.x, RightUVBorder);
+	float rightZone = step(RightUVBorder, uv.x);
+
+	float BeamDensity = BeamCount_mid / BeamCount;
+	//Account of FlexMode
+	reflectivity *= (leftZone*(1 - BeamDensity + (BeamDensity)*smoothstep(1, -0.0, (LeftUVBorder - uv.x) / LeftUVBorder))
+		+ rightZone * (1 - BeamDensity + (BeamDensity)*smoothstep(1, -0.0, (uv.x - RightUVBorder) / (1 - RightUVBorder)))
+		+ midZone)*FlexModeEnabled + (1 - FlexModeEnabled);
+
+	float gain = (0.25 + Gain * 0.75);
+	gain = lerp(gain*gain, gain, tex_flag)*reflectivity;
+	LinearColorPixels1(SS_uv*st_dim.zw, gain, st_dim.zw, reflectivity, Gain);
+}
+
+
+[numthreads(64, 1, 1)]
+void ComputeDetect(uint3 groupID : SV_GroupID,
+	// 3D ID of thread group; range depends on Dispatch call
+	uint3 groupThreadID : SV_GroupThreadID,
+	// 3D ID of thread in a thread group; range depends on numthreads
+	uint groupIndex : SV_GroupIndex,
+	// flattened/linearized SV_GroupThreadID. 
+	// groupIndex specifies the index within the group (0 to 63)
+	uint3 id : SV_DispatchThreadID)
+	// = SV_GroupID * numthreads + SV_GroupThreadID
+	// id.x specifies the row in the input texture image
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	int raw;
+
+	// find the maximum of this row 
+	// and store its data in rowMaxData[groupIndex]
+	BeamBuffer[id.x].x = 0;
+	BeamBuffer[id.x].y = 0;
+	for (raw = 0; raw < s_dim.w; raw++)
+	{
+		uint color = (uint)(1023.0 *Source[uint2(id.x,raw)].x);
+		color = max(color,(uint)(1023.0 *Noise1[uint2(id.x, raw)].x));
+		if (color > BeamBuffer[id.x].y)
+		{
+			BeamBuffer[id.x].x = raw;
+			BeamBuffer[id.x].y = color;
+		}
+	}
+}

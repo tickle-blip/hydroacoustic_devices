@@ -1,0 +1,30 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel MapDots
+Texture2D<float4> Source;
+RWTexture2D<float4> Destination;
+
+RWStructuredBuffer<float4> PosBuffer;
+
+#include "../SonarsDistributionBase.cginc"
+
+
+int PingNumber, PingCount;
+float Range;
+float HorisontalFOV;
+float4x4 _InvViewProjMatrix, _InvViewMatrix;
+float4x4 PseudoCam_VPMatrix;
+
+
+float UpperLevel, ZeroLevel;
+[numthreads(16, 16, 1)]
+void MapDots(uint2 id : SV_DispatchThreadID)
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	//float3 pos = Source[id.xy];
+	float3 pos = Source[id.xy].xyz;
+	//pos = pos + pos *0.01* r(id.xy);
+	//float depth = pos.y;
+	//float s = remap(0, 1, ZeroLevel, UpperLevel, depth);
+	PosBuffer[PingNumber*PingCount + id.x + id.y*s_dim.z] = float4(pos,1);
+}

@@ -1,0 +1,225 @@
+﻿#pragma kernel ShiftQuad
+#pragma kernel RemapQuad
+#pragma kernel RenderInPolar
+#pragma kernel RenderDepthRuler
+
+#include "../SonarsInterpolationBase.cginc"
+
+Texture2D<float4> NoiseStrip;
+Texture2D<float4> DistStrip;
+Texture2D<float4> Ruler;
+Texture2D<float4> Source;
+SamplerState _LinearClamp;
+
+RWTexture2D<float4> Destination;
+
+float Scroll;
+float Time;
+
+//Ruler Variables//
+float WindowsRatio;
+float RulerScale;
+float ShowDivisions;
+float3 RulerBackground, RulerScaleColor, RulerDivisionsColor;
+
+//UI Variables
+float Thickness;
+uint GridOn;
+uint EventLine;
+uint GridCount;
+float4 _GridColor;
+
+
+float4 uvOffsetArray[16];
+int uvArrayCount;
+
+float DrawEventLine(float2 coord, float4 dim) {
+
+	// Normalized pixel coordinates (from 0 to 1)
+	float2 uv = coord * dim.xy;
+
+	float s = 0.;
+	for (int i = 0; i < uvArrayCount; i++)
+	{
+
+		float uv_offset = -0.5 + uvOffsetArray[floor(i / 4)][i % 4];
+
+		float s1 = LineSegment(uv, float2(uv_offset, 0), float2(uv_offset, 1));
+
+		s += LineSharpen(s1, Thickness, dim.zw);
+	}
+	return s;
+}
+
+//ColorPalette
+float4 _Colors[8];
+int _ColorsCount;
+float LowerFactor, MiddleFactor;
+float3 LerpColorPixels(float depth) {
+	depth = depth * step(LowerFactor, MiddleFactor);
+	depth = remap(0, 1, LowerFactor, MiddleFactor, depth);
+
+	float sT = clamp(depth, 0, 1) * (float)(_ColorsCount - 1);
+	float3 oldColor = _Colors[floor(sT)].rgb;
+	float3 newColor = _Colors[ceil(sT)].rgb;
+	float newT = sT - floor(sT);
+
+	float3 color = lerp(oldColor, newColor, newT);
+	return color;
+}
+//----//
+
+float4 SampleBilinear(Texture2D tex, float2 uv, float4 texelSize)
+{
+	float2 uv_texels = uv * texelSize.zw + float2(0, 0.5);
+
+	float2 UVmin = float2((uv.x - texelSize.x)*texelSize.z, (uv.y - texelSize.y * 0.5)*texelSize.w);
+	UVmin.x = 0*texelSize.z;
+	float2 UVmax = float2(uv_texels.x, (uv.y + texelSize.y * 0.5)*texelSize.w);
+	UVmax.x = 1;//
+	float4 uv_min_max = float4(UVmin, UVmax);
+
+	float2 uv_frac = frac(uv_texels);
+	
+	//float2 uv_frac = frac(1 +  1* frac(uv_texels));
+	uv_frac.x = uv_texels.x;
+	//uv_frac.y = frac(1 + frac(uv_texels).y);
+	float4 texelA = tex[float2(uv_min_max.xy)];
+	float4 texelB = tex[float2(uv_min_max.xw)];
+	float4 texelC = tex[float2(uv_min_max.zy)];
+	float4 texelD = tex[float2(uv_min_max.zw)];
+
+	return lerp(lerp(texelA, texelB, uv_frac.y), lerp(texelC, texelD, uv_frac.y), uv_frac.x);
+}
+
+
+float DrawHorisontalGrid(float2 coord, float4 dim) {
+
+	float g = 0;
+
+	float2 tempXY = coord * dim.xy;
+
+	float norm = 1;
+	float y = 4;
+	float l;
+	for (uint i = 1; i <= (GridCount); i++) {
+		float uv_offset = (norm * ((float)(i) / (GridCount + 1)));
+		float l = LineSegment(tempXY, float2(-y, uv_offset), float2(y, uv_offset));
+		l = LineSharpen(l, Thickness, dim.zw);
+		g += l;
+	}
+	return g;
+}
+
+/////////Kernels////////////
+[numthreads(16, 16, 1)]
+void RemapQuad(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim,n_dim;
+	s_dim = GetDimensionsFrom(Source);
+	n_dim = GetDimensionsFrom(DistStrip);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float4 s = Source[id.xy + float2(Scroll, 0)];
+	float delta = (id.x % (	Scroll)) / Scroll;
+	float4 dNoise = SampleBilinear(NoiseStrip, float2(delta, id.y)*n_dim.xy, n_dim);
+	//dNoise = NoiseStrip[float2(delta, id.y)];
+	float4 d = SampleBilinear(DistStrip,float2(delta,id.y)*n_dim.xy,n_dim);
+	d = max(d, dNoise);
+	float flag = step(d_dim.z - id.x - Scroll,0);
+	float col = lerp(s, d, flag);
+	Destination[id.xy] = col;
+}
+
+[numthreads(2, 180, 1)]
+void ShiftQuad(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	Destination[id.xy] = Source[id.xy + float2(Scroll, 0)];
+}
+
+
+[numthreads(32, 32, 1)]
+void RenderInPolar(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim,r_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	r_dim = GetDimensionsFrom(Ruler);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float2 uv = (id.xy*d_dim.xy);
+
+	float2 coord = uv*s_dim.zw;
+	float2 coordSource = float2(uv.x / WindowsRatio,uv.y)*s_dim.zw;
+	float2 coordRuler = float2((uv.x - WindowsRatio) / (1- WindowsRatio), uv.y)*r_dim.zw;
+
+	//depth = SampleBilinear(Source, coord*s_dim.xy, s_dim).r;
+	float depth = Source[coordSource];
+	float grid = GridOn*DrawHorisontalGrid(id.xy - float2(d_dim.z / 2, 0), d_dim)+ EventLine*DrawEventLine(id.xy - float2(d_dim.z / 2, 0),d_dim);
+	float4 Scolor = float4(LerpColorPixels(depth), 1);
+
+	float3 color = lerp(Scolor, _GridColor, grid*_GridColor.w).xyz;
+
+	float3 ruler = Ruler[coordRuler].xyz;
+	color = color * step(uv.x, WindowsRatio) + ruler * step(WindowsRatio, uv.x);
+	//color = Scolor;
+	//Destination[id.xy] = color;
+	Destination[id.xy] = float4(pow(color, 2.2),1);
+	//Destination[id.xy] = grid;
+}
+
+
+
+[numthreads(16, 16, 1)]
+void RenderDepthRuler(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.1415;
+	float4 ds_dim, d_dim;
+	ds_dim = GetDimensionsFrom(DistStrip);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	float2 uv = (id.xy)*d_dim.xy;
+	float xCoord = abs((id.x*d_dim.x*2.5 - 0.6))*2;
+
+	float reflectivity = max(DistStrip[float2(1, id.y)].x, NoiseStrip[float2(1, id.y)].x);
+	reflectivity = reflectivity * step(LowerFactor, MiddleFactor);
+	reflectivity = remap(0, 1, LowerFactor, MiddleFactor, reflectivity);
+	reflectivity = clamp(reflectivity, 0, 1);
+	float widenessAtY = 0.08+ reflectivity;
+	float scale = step(xCoord, widenessAtY);
+	float m = 1/(RulerScale-1);
+	float thickness = 0.003;
+	
+	float2 uvSym = float2(uv.x, (1+ thickness)*(uv.y)% (m/5));
+	float Line = LineSegment(uvSym, float2(0.6, 0.), float2(0.65, 0));
+	Line = LineSharpen(Line, thickness, d_dim.ww) *ShowDivisions;
+
+	uvSym = float2(uv.x, (1 + thickness)*uv.y%(m));
+	float sline = LineSegment(uvSym, float2(0.6, 0.), float2(0.85, 0.));
+	Line += LineSharpen(sline, thickness*1.5, d_dim.ww);
+	
+	float3 col = lerp(RulerBackground, RulerScaleColor, scale);
+	col = lerp(col, RulerDivisionsColor, Line);
+	Destination[id.xy] =float4(col,1);
+}

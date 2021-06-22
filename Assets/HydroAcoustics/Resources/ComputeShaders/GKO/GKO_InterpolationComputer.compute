@@ -1,0 +1,427 @@
+﻿#pragma kernel RemapInterpolateQuad
+#pragma kernel RemapQuad
+#pragma kernel RenderInPolar
+
+#pragma kernel Zoom_RenderInPolar
+
+#include "../SonarsInterpolationBase.cginc"
+Texture2D<float4> Noise;
+Texture2D<float4> Source;
+SamplerState _LinearClamp;
+
+RWTexture2D<float4> Destination;
+
+
+float4 SampleBilinear(Texture2D tex, float2 uv, float4 texelSize, float dir)
+{
+	float2 uv_texels = uv * texelSize.zw + float2(0, 0.5);
+
+	float2 UVmin = float2(frac(1 + (uv.x - dir * texelSize.x))*texelSize.z, (uv.y - texelSize.y * 0.5)*texelSize.w);
+
+	float2 UVmax = float2(uv_texels.x, (uv.y + texelSize.y * 0.5)*texelSize.w);
+
+	float4 uv_min_max = float4(UVmin, UVmax);
+
+	float2 uv_frac = frac(1 + dir * frac(uv_texels));
+	uv_frac.y = frac(1 + frac(uv_texels).y);
+	float4 texelA = Source[float2(uv_min_max.xy)];
+	float4 texelB = Source[float2(uv_min_max.xw)];
+	float4 texelC = Source[float2(uv_min_max.zy)];
+	float4 texelD = Source[float2(uv_min_max.zw)];
+
+	return lerp(lerp(texelA, texelB, uv_frac.y), lerp(texelC, texelD, uv_frac.y), uv_frac.x);
+}
+
+float SampleLinearY(Texture2D tex, float2 uv, float4 texelSize) {
+
+	float2 uv_texels = uv * texelSize.zw + float2(0, 0.5);
+	float2 y_min_max = float2(floor(uv_texels.y) - 0.5, floor(uv_texels.y) + 0.5);
+	float uv_frac = frac(uv_texels.y);
+
+	float2 uv1 = float2(uv_texels.x, y_min_max.x);
+	float2 uv2 = float2(uv_texels.x, y_min_max.y);
+
+	float4 colorA = Source[uv1];
+	float4 colorB = Source[uv2];
+	return lerp(colorA, colorB, uv_frac).r;
+}
+
+float CurrentRotAngle;
+float DiscreteAngleStep;
+
+
+float Interpolation;
+float ScanZoneWideness;
+float ScanLookAngle;
+
+
+
+float ShowRings, ShowSector, ApplyZoom;
+float MaxDistanceMark;
+
+float2 Offset;
+float Scale_factor;
+
+float Thickness;
+int FontSize;
+
+uint CrossCount, GridCount;
+uint Rings;
+uint Sector1_angle, Sector2_angle;
+
+
+float2 MouseCoords;
+float2 ZoomBox, ZoomParams;
+float4 _BackgroundColor;
+float LowerFactor, MiddleFactor;
+float4 _GridColor;
+float4 BoxColor;
+float BoxSize;
+
+float DrawCross(float2 coord, float4 dim, float zoom)
+{
+	float m = 0;
+	for (uint i = 0; i < CrossCount; i++) {
+
+		float2 tempXY = coord * dim.xy;
+		tempXY += 0.5;
+		tempXY = rotateUV(tempXY, i * 90);
+
+		float y = 1 / clamp(Scale_factor, 0, 0.5) * 2;
+		float norm = lerp(dim.w*dim.x, 1., i);
+		float l = LineSegment(tempXY, float2(-y, 0.5), float2(y, 0.5));
+		l = LineSharpen(l, Thickness*zoom / norm, dim.zw);
+		m += l;
+	}
+	return m;
+}
+
+float DrawSector(float2 normCoord, float angle, float4 dim, float rings, float zoom)
+{
+	float flag = step(Sector1_angle, Sector2_angle);
+
+	float2 max_min = float2(max(Sector1_angle, Sector2_angle), min(Sector1_angle, Sector2_angle));
+
+	float In;
+	if (angle > max_min.y&& angle < max_min.x) In = 1;
+	else In = 0;
+	In = lerp(1 - In, In, flag);
+
+	float2 cosin_s1 = float2(sin(Sector1_angle / 57.29), cos(Sector1_angle / 57.29));
+	float2 cosin_s2 = float2(sin(Sector2_angle / 57.29), cos(Sector2_angle / 57.29));
+
+	float s1 = LineSegment(normCoord, float2(0, 0), cosin_s1 / 2);
+	float s2 = LineSegment(normCoord, float2(0, 0), cosin_s2 / 2);
+
+	float s_rings = (1 - step(Thickness * 5 * zoom *Rings, 1 - frac(rings)))*In;
+
+	float s_lines = LineSharpen(s1, Thickness *zoom, dim.zw) + LineSharpen(s2, Thickness *zoom, dim.zw);
+
+	return s_rings + s_lines;
+}
+
+float DrawGrid(float2 coord, float4 dim, float zoom) {
+
+	float g = 0;
+	for (uint j = 0; j < GridCount; j++)
+	{
+		float2 tempXY = coord * dim.xy;
+
+		tempXY += 0.5;
+		tempXY = rotateUV(tempXY, j*90.);
+
+		float norm = lerp(dim.w*dim.x, 1., j);
+
+		float y = 1 / clamp(Scale_factor, 0, 0.5) * 2;
+		float l = LineSegment(tempXY, float2(-y, 0.5), float2(y, 0.5));
+		l = LineSharpen(l, Thickness *zoom, dim.zw);
+		g += l;
+
+		for (uint i = 1; i <= Rings; i++) {
+			float uv_offset = 0.5*(1. + norm * ((float)i / Rings));
+			float l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			l = LineSharpen(l, Thickness  *zoom, dim.zw);
+			g += l;
+
+			uv_offset = 0.5*(1. - norm * ((float)i / Rings));
+			l = LineSegment(tempXY, float2(uv_offset, -y), float2(uv_offset, y));
+			l = LineSharpen(l, Thickness *zoom, dim.zw);
+			g += l;
+		}
+	}
+	return g;
+}
+
+float4 _Colors[8];
+int _ColorsCount;
+
+float3 LerpColorPixels(float depth) {
+	depth = depth * step(LowerFactor, MiddleFactor);
+	depth = remap(0, 1, LowerFactor, MiddleFactor, depth);
+
+	//depth = depth * step(MiddleFactor, depth);
+	float sT = clamp(depth, 0, 1) * (float)(_ColorsCount - 1);
+	float3 oldColor = _Colors[floor(sT)].rgb;
+	float3 newColor = _Colors[ceil(sT)].rgb;
+	float newT = sT - floor(sT);
+
+	float3 color = lerp(oldColor, newColor, newT);
+	return color;
+}
+
+/////////Kernels////////////
+[numthreads(16, 16, 1)]
+void RemapQuad(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim,n_dim;
+	s_dim = GetDimensionsFrom(Source);
+	n_dim = GetDimensionsFrom(Noise);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float f = step(DiscreteAngleStep, 0);
+	float pixel_angle = (id.x+f)*d_dim.x * 360;
+	float p = floor((CurrentRotAngle - DiscreteAngleStep) / 361);
+	float maxA = max((CurrentRotAngle - DiscreteAngleStep), CurrentRotAngle);
+	float minA = min((CurrentRotAngle - DiscreteAngleStep), CurrentRotAngle);
+	float depth= Source[id.xy * d_dim.xy * s_dim.zw].r;
+	float depthNoise = Noise[id.xy * d_dim.xy * n_dim.zw].r;
+
+	//Блендит шум и распределение
+	depth = max(depth, depthNoise);
+	float2 uv = float2(id.x+f, id.y);
+	
+	//Рисует только те пиксели которые попадают в полосу текущей позиции
+	if (abs(pixel_angle - (360 + (CurrentRotAngle - abs(DiscreteAngleStep / 2))) % 360) <= abs(DiscreteAngleStep/2)+0.1)
+	{
+		Destination[uv] = depth;
+	}
+}
+
+[numthreads(16, 16, 1)]
+void RemapInterpolateQuad(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+
+	float pixel_angle = (id.x)*d_dim.x * 360;
+	float p = floor((CurrentRotAngle - DiscreteAngleStep) / 361);
+	float maxA = max((CurrentRotAngle - DiscreteAngleStep), CurrentRotAngle);
+	float minA = min((CurrentRotAngle - DiscreteAngleStep), CurrentRotAngle);
+	
+	//Destination[id.xy] = Source[id.xy * d_dim.xy * s_dim.zw];
+	//Destination[id.xy] = SampleBilinear(Source, id.xy*d_dim.xy, s_dim, sign(DiscreteAngleStep)).r;
+	//Destination[id.xy] = SampleLinearY(Source, id.xy*d_dim.xy, s_dim).r;
+
+	float depth;
+	if (Interpolation < 0.5) 	 
+		depth = SampleLinearY(Source, id.xy*d_dim.xy, s_dim).r;
+	else 
+		depth = SampleBilinear(Source, id.xy*d_dim.xy, s_dim, sign(DiscreteAngleStep)).r;
+
+	//Рисует только те пиксели которые попадают в полосу текущей позиции
+	if (p < 0.5 && p>-0.5) {
+
+		if (pixel_angle >= minA && pixel_angle <= maxA)					Destination[id.xy] = depth;
+	}
+	else {
+		if (pixel_angle >= minA % 360 || pixel_angle <= maxA % 360)		Destination[id.xy] = depth;
+	}
+	
+	//Стирает все пиксели которые не попадают в ScanZoneWideness
+	p = floor((ScanLookAngle - ScanZoneWideness/2) / 361) + floor((ScanLookAngle + ScanZoneWideness / 2) / 361);
+	maxA = max((ScanLookAngle + ScanZoneWideness / 2), ScanLookAngle - ScanZoneWideness / 2);// +abs(DiscreteAngleStep);
+	minA = min((ScanLookAngle + ScanZoneWideness / 2), ScanLookAngle - ScanZoneWideness / 2);// -abs(DiscreteAngleStep);
+	if (p < 0.5 && p>-0.5) {
+
+		if (pixel_angle < minA || pixel_angle > maxA) {
+			Destination[id.xy] = 0;
+		}
+	}
+	else {
+		if (pixel_angle < (360+minA) % 360 && pixel_angle > (360+maxA) % 360) {
+			Destination[id.xy] = 0;
+		}
+	}
+}
+
+
+
+[numthreads(32, 32, 1)]
+void RenderInPolar(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.14159265359;
+	float4 s_dim,d_dim; 
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	
+	float minRes = min(d_dim.z, d_dim.w);
+	
+	
+	float2 uv_from_center = float2(id.xy - 0.5 *d_dim.zw);
+	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, d_dim);
+
+	float radius_uv_y;
+	float pixel_angle;
+	GetAngleCoordAndRadiusUV(float2(-uv_from_center.y,uv_from_center.x) / minRes, radius_uv_y, pixel_angle);
+	
+	//Draw Rings
+	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
+	float rings = (1 - step(Thickness *5 /Scale_factor * Rings, 1 - frac(ringsMain)));
+	rings *= ShowRings;
+	
+	//Draw Spinning Line
+	float pc = (CurrentRotAngle) / 57.29;
+	float2 cosin = float2(sin(pc), cos(pc));
+	
+	float l = LineSegment(uv_from_center/minRes, float2(0, 0), cosin/2);
+	l = LineSharpen(l, Thickness / Scale_factor, d_dim.zw);
+	
+	//Draw Cross
+	float cross = DrawCross(uv_from_center,d_dim, 1 / Scale_factor);
+
+	float main = l + cross + rings;
+
+	//Draw Sector Rings and Lines
+	float sector = DrawSector(uv_from_center / minRes, pixel_angle, d_dim, ringsMain, 1 / Scale_factor);
+	sector *= ShowSector;
+	
+	//Draw Grid
+	float grid = DrawGrid(uv_from_center, d_dim,1/Scale_factor);
+
+	//Draw Digits
+	/*float2 vFontSize = float2(4, 8.35)*(float)FontSize;
+	vFontSize = trunc(float2(4, 5)*vFontSize / Scale_factor) / float2(4, 5); // Multiples of 4x5 work best
+	float2 x = d_dim.zw;
+
+	float fDigits = 0.0;
+	float fDecimalPlaces = 1.0;
+	float digit=0;
+	float norm = lerp(d_dim.w*d_dim.x, 1., 0) ;
+	for (uint k = 1; k <= Rings; k++) {
+
+		float2 vPixelCoord =  float2(1,0)*(d_dim.zw/2*k/Rings * norm -vFontSize.x*3.2) + float2(0,6);
+		//float2 vPixelCoord = uv_from_center + float2(1, 1)*(40) + float2(0, 6);
+		float fValue2 = trunc(2*MaxDistanceMark*k/Rings)/2;
+
+		digit += PrintValue((uv_from_center - vPixelCoord) / vFontSize, fValue2, fDigits, fDecimalPlaces);
+	}
+	*/
+
+	//DrawZoomWindow
+	float2 center = (MouseCoords*d_dim.zw);
+	float2 zoom_wh = ZoomBox / 2 * ZoomParams.x * 2 / 100;
+	float hollow = BoxSize;
+	float box = sdBox(id.xy - center, zoom_wh, hollow)*ApplyZoom;
+
+	//Scale_UV(id.xy - center, Offset, 1, d_dim)
+	float depth = Source[float2(pixel_angle / 360 , radius_uv_y)*s_dim.zw].r;
+	float4 Scolor = float4(LerpColorPixels(depth),1);
+	
+	float4 color = lerp(Scolor, _GridColor, (main+sector+grid)*_GridColor.w );
+	
+	color = lerp(color, BoxColor, box);
+	Destination[id.xy] = pow(color, 2.2);
+	//Destination[id.xy] = Scolor;
+}
+
+float2 OriginTexWH;
+
+[numthreads(32, 32, 1)]
+void Zoom_RenderInPolar(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.1415;
+	float4 s_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	
+	float4 dim = float4(1 / OriginTexWH, OriginTexWH);
+
+	//Высчитываем UV семплинга в соответствии с размером и положением ZoomBox'a
+	float2 Boxcenter = MouseCoords * OriginTexWH;
+	float zoom = ZoomParams.x / 100*2;
+	float2 LBCorner = Boxcenter - ZoomBox /2 *zoom ;
+	float2 relUV = (LBCorner + id.xy*zoom);
+	float minRes = min(OriginTexWH.x, OriginTexWH.y);
+
+
+	float4 color = _BackgroundColor;
+	float2 uv_from_center = float2(relUV - 0.5 *OriginTexWH);
+	//Масштабируем в соответствии с увеличением Зума
+	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, dim);
+
+	float radius_uv_y;
+	float pixel_angle;
+	//Получаем Угол(0-360) и Нормированый(0-1) радиус
+	GetAngleCoordAndRadiusUV(float2(-uv_from_center.y, uv_from_center.x) / minRes, radius_uv_y, pixel_angle);
+	
+	//Draw Rings
+	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
+	float rings = (1 - step(Thickness*5*zoom*Rings, 1 - frac(ringsMain)));
+	rings *= ShowRings;
+
+	//Draw Spinning Line
+	float pc = (CurrentRotAngle) / 57.29;
+	float2 cosin = float2(sin(pc), cos(pc));
+
+	float l = LineSegment(uv_from_center / minRes, float2(0, 0), cosin);
+
+	l = LineSharpen(l, Thickness  *zoom, dim.zw);
+
+
+	//Draw Cross
+	float cross = DrawCross(uv_from_center, dim, zoom*2);
+
+	float main = l + cross + rings;
+
+	//Draw Sector Rings and Lines
+
+	float sector = DrawSector(uv_from_center / minRes, pixel_angle, dim, ringsMain, zoom);
+	sector *= ShowSector;
+
+	//Draw Grid
+	float g = DrawGrid(uv_from_center	, dim,zoom);
+	/*
+	//Draw Digits
+	float2 vFontSize = float2(4, 8.35)*(float)FontSize;
+	 vFontSize = trunc(float2(4, 5)*vFontSize  * zoom) / float2(4,5); // Multiples of 4x5 work best
+
+	float fDigits = 0.0;
+	float fDecimalPlaces = 1.0;
+	float digit = 0;
+	float norm = lerp(dim.z*dim.x, 1., 0) ;
+	for (uint k = 1; k <= Rings; k++) {
+
+		float2 vPixelCoord = float2(1, 0)*(dim.zw / 2 * k / Rings - vFontSize.x * 3.8) + float2(0, 6)*zoom;
+		float fValue2 = trunc(2 * MaxDistanceMark*k / Rings) / 2;
+
+		digit += PrintValue((uv_from_center - vPixelCoord) / vFontSize, fValue2, fDigits, fDecimalPlaces);
+	}*/
+
+
+
+	float depth = Source[float2(pixel_angle / 360, radius_uv_y)*s_dim.zw].r;
+	float4 Scolor = float4(LerpColorPixels(depth),1);
+	
+	color = lerp(Scolor, _GridColor, (main + sector + g )*_GridColor.w);
+	Destination[id.xy] = pow(color,2.2);
+}
