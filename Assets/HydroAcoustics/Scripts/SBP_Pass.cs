@@ -45,7 +45,7 @@ public class EventText
     public EventText(Text text1)
     {
         this.text1 = text1;
-        uvOffset = -0.1f;
+        uvOffset = 0f;
     }
 }
 class SBP_Pass : CustomPass

@@ -13,9 +13,9 @@ using TMPro;
 class F50_Pass : CustomPass
 {
     #region Fields
-    public RawImage Test_img3;
-    public RawImage Test_img1;
-    public RawImage distance_img;
+    //public RawImage Test_img3;
+    //public RawImage Test_img1;
+    //public RawImage distance_img;
     public Vector2Int ResultDimensions = new Vector2Int(1920, 1080);
     public RawImage ResultSonarImage;
     public RawImage ZoomResultImage;
@@ -30,7 +30,6 @@ class F50_Pass : CustomPass
     public TypeCreator Type_Creator;
     /////-------------"UI Fields"------------------/////
 
-    public Camera TestCam;
     [HideInInspector] public float FrameRate;
     [Range(0f, 1f)]
     public float Gain = 0.25f;
@@ -69,6 +68,45 @@ class F50_Pass : CustomPass
     public float RightFlexAngle = 130f;
     public float BeamDensity = 0f;
 
+    //Scroll settings
+    [Range(1f, 60f)]
+    public int RulerFontSize = 10;
+    public int ScrollAmount = 2;
+    public float MainWindowToRulerRatio = 0.92f;
+
+    //SideScanSettings
+    public bool EnableSideScan = false;
+    public RulerSettings SideScanRulerSettings = new RulerSettings();
+
+    //Scan Modes toogles
+    public bool EnableWaterColumn = false;
+    [Range(1f, 60f)]
+    public int EventFontSize = 10;
+
+    public ProfilerDisplay WaterColumnDisplay = new ProfilerDisplay();
+    public int WC_BeamNumber = 1;
+
+    public bool EnableSnippets = false;
+    public RulerSettings SnippetsRulerSettings = new RulerSettings();
+
+    public bool EnableDetect = false;
+    public bool EnableHistory = false;
+    public float Wedge_ZeroGroundLevel = 5f;
+    public float Wedge_UpperLevel = 10f;
+    public Vector2 ShiftSwath = new Vector2(0f, -1f);
+    public int SwathSpacing = 1;
+    public float WedgePingDelay = 1f;
+    public int Wedge_MemoryAmount = 256;
+    //Pseudo3d Settings
+    public bool EnablePseudo3D = false;
+    public bool ExplorationMode3d = false;
+    public int Pseudo3D_Resolution = 120;
+    public float ZeroGroundLevel = 0f;
+    public float UpperLevel = 3f;
+    public float PingDelay = 1f;
+    public int MemoryAmount = 100;
+
+    //Image Display settings
     public float ImageRotation = 0;
     public Vector2Int CentrePercent = Vector2Int.zero; //Change via SetPositionX, SetPositionY
     public int RadiusPercent = 50; //Change via SetRadius
@@ -89,35 +127,12 @@ class F50_Pass : CustomPass
     public bool ShowMark = false;
     public bool PolarView = false;
 
-    //SideScanSettings
-    public bool EnableSideScan = false;
-    [Range(-65f, 65f)]
-    public float SideScanLookAngle = 0;
-    public int ScrollAmount = 2;
-    public float MainWindowToRulerRatio = 0.92f;
-    public RulerSettings RulerSettings = new RulerSettings();
-    [Range(1f, 60f)]
-    public int RulerFontSize = 10;
-
-    //SnippetsSettings 
-    public bool EnableSnippets = false;
-
-    public bool EnableDetect = false;
-
-    //Pseudo3d Settings
-    public bool EnablePseudo3D = false;
-    public bool ExplorationMode3d = false;
-    public int Pseudo3D_Resolution = 120;
-    public float ZeroGroundLevel = 0f;
-    public float UpperLevel = 3f;
-    public float PingDelay = 1f;
-    public int MemoryAmount = 100;
 
     //Zoom Settings
-    public bool AcousticZoom = false;
-    public Vector2 MouseCoords = new Vector2(0.5f, 0.5f); // Mouse Coords image UV space  . (0,0) - left bottom corner
-    public Vector2Int ZoomWindowRect = new Vector2Int(300, 500); //Zoom window Width, Height
-    public Vector2Int ZoomParams = new Vector2Int(50, 1); // Zoom %, Zoom Factor
+    [HideInInspector]public bool AcousticZoom = false;
+    [HideInInspector] public Vector2 MouseCoords = new Vector2(0.5f, 0.5f); // Mouse Coords image UV space  . (0,0) - left bottom corner
+    [HideInInspector] public Vector2Int ZoomWindowRect = new Vector2Int(300, 500); //Zoom window Width, Height
+    [HideInInspector] public Vector2Int ZoomParams = new Vector2Int(50, 1); // Zoom %, Zoom Factor
 
     /////--------------"Scripting Fields"------------------/////
 
@@ -171,13 +186,19 @@ class F50_Pass : CustomPass
     private List<Text> GridDistanceMarks, Zoom_GridDistanceMarks;
     private List<Image> MarksGoList;
     private List<Image> Zoom_MarksGoList;
-    private List<Text> RulerText;
+    private List<Text> SideScan_RulerText;
+    private List<Text> Snippets_RulerText;
+    private List<Text> WaterColumn_RulerText;
+
     private Transform marks_placeholder;
     private Transform zoom_marks_placeholder;
 
     private Transform text_marks_placeholder;
     private Transform zoom_text_marks_placeholder;
-    private Transform ruler_text_marks_placeholder;
+    private Transform sidescan_ruler_text_marks_placeholder;
+    private Transform snippets_ruler_text_marks_placeholder;
+    private Transform watercolumn_text_marks_placeholder, watercolumn_ruler_text_marks_placeholder;
+
     //Final Texture
     [HideInInspector] public RTHandle Result, Zoom_Result;
 
@@ -190,16 +211,19 @@ class F50_Pass : CustomPass
     private RenderTexture pseudo3D_Positions;
     private RenderTexture pseudo3D_Result;
     private RTHandle distribution_Transit1, distribution_Transit2, distribution_Together;
+    private RTHandle detect_Texture;
     private RTHandle zoom_distribution_Transit1, zoom_distribution_Transit2, zoom_distribution_Together;
 
-    private RTHandle scan_strip, ruler;
+    private RTHandle waterColumn_scan_strip,scan_strip, ruler;
+    private RTHandle waterColumn_scroll, waterColumn_scroll_temp, waterColumn_result;
     private RTHandle sidescan_scroll, sidescan_scroll_temp, sidescan_result;
     private RTHandle snippets_scroll, snippets_scroll_temp, snippets_result;
     //private RTHandle noise_strip;
     private ComputeBuffer distanceBuffer, zoom_distanceBuffer, strip_distanceBuffer;
     private ComputeBuffer pseudo3D_buffer;
 
-    private ComputeBuffer BeamBuffer;
+    private int wedgePingNumber = 0;
+    private ComputeBuffer BeamBuffer,BeamHistoryBuffer;
     private int pingNumber = 0;
     //Shader Fields
 
@@ -221,33 +245,35 @@ class F50_Pass : CustomPass
 
     private int handleClearBuffer;
     private int handleClearBeamBuffer;
-    private int handleNoiseDistributionMain;
-    private int handleDistributionMain;
-    private int handleRenderInPolar;
-    private int handleRenderInCartesian;
 
 
-    private int handleFillSideScanStrip;
+    private int handleDistribution_Main;
+    private int handleDistribution_NoiseMain;
+    private int handleDistribution_FillWaterColumnStrip;
+    private int handleDistribution_FillSideScanStrip;
+    private int handleDistribution_FillSnippetsStrip;
+    private int handleDistribution_ComputeDetect;
 
-    private int handleFillSnippetsStrip;
-    private int handleShiftSideScanTexture;
-    private int handleShiftSideSnippetsTexture;
-    private int handleRenderSideScanFinal;
-    private int handleRenderDepthRuler;
-
-    private int handleComputeDetect;
-    private int handleRenderDetect;
+    private int handleInterpolation_RenderInPolar;
+    private int handleInterpolation_RenderInCartesian;
+    private int handleInterpolation_RenderDetect;
+    private int handleInterpolation_DrawWedgeHistory;
+    private int handleInterpolation_ShiftSideScanTexture;
+    private int handleInterpolation_ShiftWaterColumnTexture;
+    private int handleInterpolation_RenderWaterColumnFinal;
+    private int handleInterpolation_RenderSideScanFinal;
+    private int handleInterpolation_RenderDepthRuler;
 
     private int handleBlurHor;
     private int handleBlurVer;
 
-    private int handleRemap;
+    private int handleInterpolation_Remap;
     private int handle_Zoom_RenderInPolar;
     private int handle_Zoom_RenderInCartesian;
 
     private int handleDrawWedge;
     //Fields for Fps
-    private float time, pingTime;
+    private float time, pingTime,wedge_pingTime;
     private Vector4 zoomRect;
     private Vector2Int zoomDim;
 
@@ -309,23 +335,30 @@ class F50_Pass : CustomPass
         handleClearBeamBuffer = DistributionComputer.FindKernel("ClearBeamBuffer");
         handleMapDots = Pseudo3dComputer.FindKernel("MapDots");
 
-        handleNoiseDistributionMain = DistributionComputer.FindKernel("MapBeamNoiseDistanceData");
-        handleDistributionMain = DistributionComputer.FindKernel("MapBeamDistanceData");
-        handleRemap = InterpolationComputer.FindKernel("RemapQuad");
-        handleRenderInPolar = InterpolationComputer.FindKernel("RenderInPolar");
-        handleRenderInCartesian = InterpolationComputer.FindKernel("RenderInCartesian");
+        handleDistribution_NoiseMain = DistributionComputer.FindKernel("MapBeamNoiseDistanceData");
+        handleDistribution_Main = DistributionComputer.FindKernel("MapBeamDistanceData");
 
-        handleFillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
-        handleFillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip"); ;
+        handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
+        handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip"); 
 
-        handleShiftSideScanTexture = InterpolationComputer.FindKernel("FillSideScanScroll");
-        //handleShiftSideSnippetsTexture = InterpolationComputer.FindKernel("FillSnippetsScroll");
-        handleRenderSideScanFinal = InterpolationComputer.FindKernel("RenderSideScanFinal");
-        handleRenderDepthRuler = InterpolationComputer.FindKernel("RenderDepthRuler");
+        handleDistribution_FillWaterColumnStrip = DistributionComputer.FindKernel("FillWaterColumnStrip");
 
-        handleComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
+        handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
+        handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
 
-        handleRenderDetect = InterpolationComputer.FindKernel("RenderDetect");
+        handleInterpolation_Remap = InterpolationComputer.FindKernel("RemapQuad");
+        handleInterpolation_RenderInPolar = InterpolationComputer.FindKernel("RenderInPolar");
+        handleInterpolation_RenderInCartesian = InterpolationComputer.FindKernel("RenderInCartesian");
+        handleInterpolation_DrawWedgeHistory = InterpolationComputer.FindKernel("DrawWedgeHistory");
+        handleInterpolation_ShiftSideScanTexture = InterpolationComputer.FindKernel("FillSideScanScroll");
+        handleInterpolation_ShiftWaterColumnTexture = InterpolationComputer.FindKernel("ShiftWaterColumnScroll");
+
+        handleInterpolation_RenderSideScanFinal = InterpolationComputer.FindKernel("RenderSideScanFinal");
+        handleInterpolation_RenderWaterColumnFinal = InterpolationComputer.FindKernel("RenderWaterColumnFinal");
+
+        handleInterpolation_RenderDepthRuler = InterpolationComputer.FindKernel("RenderDepthRuler");
+
+        handleInterpolation_RenderDetect = InterpolationComputer.FindKernel("RenderDetect");
 
 
         handleBlurHor = BlurComputer.FindKernel("HorzBlurCs");
@@ -398,23 +431,37 @@ class F50_Pass : CustomPass
         currentResolution = 0;
         currentBeamCount = 0;
         AllocateTexturesIfNeeded();
-        time = 0.5f;
+        time = 0f;
 
         marks_placeholder = ResultSonarImage.transform.Find("MarksPlaceholder");
         zoom_marks_placeholder = ZoomResultImage.transform.Find("ZoomMarksPlaceholder");
         text_marks_placeholder = ResultSonarImage.transform.Find("TextMarksPlaceholder");
         zoom_text_marks_placeholder = ZoomResultImage.transform.Find("ZoomTextMarksPlaceholder");
-        ruler_text_marks_placeholder = SideScanResult.transform.Find("SideScanMarksPlaceholder");
+        sidescan_ruler_text_marks_placeholder = SideScanResult.transform.Find("SideScanMarksPlaceholder");
+        snippets_ruler_text_marks_placeholder = SnippetsResult.transform.Find("SnippetsMarksPlaceholder");
+        watercolumn_text_marks_placeholder = SnippetsResult.transform.Find("WaterColumnMarksPlaceholder");
         MarksList = new List<Mark>();
         MarksGoList = new List<Image>();
         Zoom_MarksGoList = new List<Image>();
-        RulerText = new List<Text>();
+        SideScan_RulerText = new List<Text>();
+        Snippets_RulerText = new List<Text>();
+        WaterColumn_RulerText = new List<Text>();
         RingsDistanceMarks = new List<Text>();
         GridDistanceMarks = new List<Text>();
         Zoom_RingsDistanceMarks = new List<Text>();
         Zoom_GridDistanceMarks = new List<Text>();
         ClearTextMarks();
         ClearRulerTextList();
+
+        cmd.SetComputeBufferParam(DistributionComputer, handleClearBeamBuffer, "BeamBuffer", BeamHistoryBuffer);
+        cmd.DispatchCompute(DistributionComputer, handleClearBeamBuffer,(BeamHistoryBuffer.count + 511) / 512, 1, 1);
+        WaterColumnDisplay.eventTimer = 0;
+        WaterColumnDisplay.globalTimer = 0;
+        WaterColumnDisplay.frameTimer = 0;
+        WaterColumnDisplay.DisplayImage = WaterColumnResult.transform;
+        CreateTextPoolAndList();
+
+        AcousticZoom = false;
     }
 
     protected override void Execute(ScriptableRenderContext renderContext, CommandBuffer cmd, HDCamera camera, CullingResults cullingResult)
@@ -430,8 +477,15 @@ class F50_Pass : CustomPass
         if (camera.camera != Camera_UI)
             return;
 
-        if (IsNextUpdateAvaliable() == false)
-            return;
+        //if (IsNextUpdateAvaliable() == false)
+            //return;
+
+        time += Time.deltaTime;
+        pingTime += Time.deltaTime;
+        wedge_pingTime += Time.deltaTime;
+        //Frame rate varies from resolution and range
+        var fr = 25f - 10f * (_Resolution / 1440f) - 10f * (MaxScanRange / 300);
+        FrameRate = fr;
 
         AllocateTexturesIfNeeded();
         ///////////----Render Objects With Override Materials
@@ -484,10 +538,10 @@ class F50_Pass : CustomPass
         cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (distanceBuffer.count + 1023) / 1024, 1, 1);
 
         //Fill Beam Data Main
-        cmd.SetComputeBufferParam(DistributionComputer, handleDistributionMain, "DistanceBuffer", distanceBuffer);
-        cmd.SetComputeTextureParam(DistributionComputer, handleDistributionMain, "Source", distanceTexture);
-        cmd.SetComputeTextureParam(DistributionComputer, handleDistributionMain, "Destination", distribution_Transit1);
-        cmd.DispatchCompute(DistributionComputer, handleDistributionMain, BeamCount,
+        cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_Main, "DistanceBuffer", distanceBuffer);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Source", distanceTexture);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Destination", distribution_Transit1);
+        cmd.DispatchCompute(DistributionComputer, handleDistribution_Main, BeamCount,
                 (distanceTexture.height+31)/32, 1);
 
 
@@ -496,10 +550,10 @@ class F50_Pass : CustomPass
         cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (distanceBuffer.count + 1023) / 1024, 1, 1);
 
         //Fill Beam Data Noise
-        cmd.SetComputeBufferParam(DistributionComputer, handleNoiseDistributionMain, "DistanceBuffer", distanceBuffer);
-        cmd.SetComputeTextureParam(DistributionComputer, handleNoiseDistributionMain, "Source", distanceTexture);
-        cmd.SetComputeTextureParam(DistributionComputer, handleNoiseDistributionMain, "Destination", distribution_Transit2);
-        cmd.DispatchCompute(DistributionComputer, handleNoiseDistributionMain, BeamCount,
+        cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_NoiseMain, "DistanceBuffer", distanceBuffer);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Source", distanceTexture);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Destination", distribution_Transit2);
+        cmd.DispatchCompute(DistributionComputer, handleDistribution_NoiseMain, BeamCount,
                 (distanceTexture.height + 31) / 32, 1);
 
 
@@ -525,27 +579,86 @@ class F50_Pass : CustomPass
         cmd.SetComputeFloatParam(InterpolationComputer, "RightNumBorder", inBeamDensity);
 
 
-        cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Noise", distribution_Transit1);
-        cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Source", distribution_Transit2);
-        cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Destination", distribution_Together);
-        cmd.DispatchCompute(InterpolationComputer, handleRemap, (distribution_Together.referenceSize.x + 31) / 32,
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Noise", distribution_Transit1);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Source", distribution_Transit2);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Destination", distribution_Together);
+        cmd.DispatchCompute(InterpolationComputer, handleInterpolation_Remap, (distribution_Together.referenceSize.x + 31) / 32,
                (distribution_Together.referenceSize.y + 31) / 32, 1);
 
-        if (EnableDetect == true)
+        if (EnableWaterColumn == true)
         {
 
-            cmd.SetComputeBufferParam(DistributionComputer, handleComputeDetect, "BeamBuffer", BeamBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleComputeDetect, "Noise1", distribution_Transit2);
-            cmd.SetComputeTextureParam(DistributionComputer, handleComputeDetect, "Source", distribution_Transit1);
-            cmd.DispatchCompute(DistributionComputer, handleComputeDetect, (distribution_Transit1.referenceSize.x + 63) / 64,
+
+            EmitEventLine(WaterColumnDisplay);
+            WaterColumnDisplay.frameTimer += Time.deltaTime;
+            
+            if (WaterColumnDisplay.frameTimer > (float)WaterColumnDisplay.Scroll * (1f/FrameRate) / 1000f)
+            {
+                WaterColumnDisplay.globalTimer += (float)WaterColumnDisplay.Scroll * (1 / FrameRate) / 1000f;
+                WaterColumnDisplay.frameTimer = 0f;
+
+                MoveEventLine(WaterColumnDisplay);
+                DrawWaterColumnRuler();
+                cmd.SetComputeIntParam(DistributionComputer, "WC_BeamNumber", WC_BeamNumber);
+                //Fill WaterColumn Strip
+                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Noise1", distribution_Transit2);
+                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Source", distribution_Transit1);
+                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Destination", waterColumn_scan_strip);
+                cmd.DispatchCompute(DistributionComputer, handleDistribution_FillWaterColumnStrip, (distribution_Transit1.referenceSize.y + 63) / 64,
+                       1, 1);
+                //Shift Texture left by "Scroll Amount" pixels + Render Strip "Scroll Amount" wide with interpolation
+                cmd.CopyTexture(waterColumn_scroll, waterColumn_scroll_temp);
+                cmd.SetComputeFloatParam(InterpolationComputer, "Scroll", Mathf.Clamp(ScrollAmount, 1f, 30f));
+
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftWaterColumnTexture, "DistStrip", waterColumn_scan_strip);
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftWaterColumnTexture, "Source", waterColumn_scroll_temp);
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftWaterColumnTexture, "Destination", waterColumn_scroll);
+                cmd.DispatchCompute(InterpolationComputer, handleInterpolation_ShiftWaterColumnTexture, (waterColumn_scroll.referenceSize.x + 15) / 16,
+                       (waterColumn_scroll.referenceSize.y + 15) / 16, 1);
+
+
+                cmd.SetComputeIntParam(InterpolationComputer, "WC_GridOn", WaterColumnDisplay.ShowGrid == true ? 1 : 0);
+                cmd.SetComputeIntParam(InterpolationComputer, "WC_GridCount", Mathf.Clamp(WaterColumnDisplay.GridCount, 1, 10));
+                cmd.SetComputeFloatParam(DistributionComputer, "Time", (Time.realtimeSinceStartup * 10 % 500));
+                cmd.SetComputeIntParam(InterpolationComputer, "WC_EventLine", ((WaterColumnDisplay.Event.Line && WaterColumnDisplay.EventOn) == true) ? 1 : 0);
+                cmd.SetComputeVectorParam(InterpolationComputer, "WC_GridColor", GridColor);
+
+                //Render Grid
+                float[] uvOffsetArray = new float[WaterColumnDisplay.Event.TextList.Count];
+                for (int i = 0; i < uvOffsetArray.Length; i++)
+                {
+                    EventText m = (EventText)WaterColumnDisplay.Event.TextList[i];
+                    uvOffsetArray[i] = m.uvOffset;
+                }
+
+                cmd.SetComputeFloatParams(InterpolationComputer, "uvOffsetArray", uvOffsetArray);
+                cmd.SetComputeIntParam(InterpolationComputer, "uvArrayCount", uvOffsetArray.Length);
+                //Render Final ?
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderWaterColumnFinal, "Source", waterColumn_scroll);
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderWaterColumnFinal, "Destination", waterColumn_result);
+                cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderWaterColumnFinal, (waterColumn_result.referenceSize.x + 31) / 32,
+                       (waterColumn_result.referenceSize.y + 31) / 32, 1);
+            }
+        }
+
+
+        if (EnableDetect == true && wedge_pingTime > WedgePingDelay)
+        {
+
+            wedge_pingTime = 0;
+
+            cmd.SetComputeIntParam(DistributionComputer, "PingNumber", wedgePingNumber);
+
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamHistoryBuffer", BeamHistoryBuffer);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamBuffer", BeamBuffer);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Noise1", distribution_Transit2);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Source", distribution_Transit1);
+            cmd.DispatchCompute(DistributionComputer, handleDistribution_ComputeDetect, (distribution_Transit1.referenceSize.x + 63) / 64,
                    1, 1);
 
-            CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeBufferParam(InterpolationComputer, handleRenderDetect, "BeamBuffer", BeamBuffer);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderDetect, "Destination", distribution_Transit1);
-            cmd.DispatchCompute(InterpolationComputer, handleRenderDetect, (BeamBuffer.count + 63) / 64,
-                   1, 1);
 
+            wedgePingNumber = wedgePingNumber < (Wedge_MemoryAmount - 1) ? wedgePingNumber + 1 : 0;
+            
         }
         ///////////----Connect Noise and True distr. to one texture
         SetVar_DisplayAndZoomParams(cmd);
@@ -561,21 +674,51 @@ class F50_Pass : CustomPass
         CoreUtils.SetRenderTarget(cmd, Result, ClearFlag.Color, clearColor: Color.clear);
         if (PolarView == true)
         {
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderInPolar, "Source", distribution_Together);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderInPolar, "Destination", Result);
-            cmd.DispatchCompute(InterpolationComputer, handleRenderInPolar, (ResultDimensions.x + 31) / 32,
+            //cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInPolar, "Noise", distribution_Transit2);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInPolar, "Source", distribution_Together);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInPolar, "Destination", Result);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderInPolar, (ResultDimensions.x + 31) / 32,
                    (ResultDimensions.y + 31) / 32, 1);
         }
         else
         {
 
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderInCartesian, "Noise", distribution_Transit1);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderInCartesian, "Source", distribution_Together);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderInCartesian, "Destination", Result);
-            cmd.DispatchCompute(InterpolationComputer, handleRenderInCartesian, (ResultDimensions.x + 31) / 32,
-                   (ResultDimensions.y + 31) / 32, 1);
+            //cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Noise", distribution_Transit2);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Source", distribution_Together);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Destination", Result);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderInCartesian, (ResultDimensions.x + 31) / 32,
+                  (ResultDimensions.y + 31) / 32, 1);
         }
+        if (EnableDetect == true)
+        {
+            if (EnableHistory == true)
+            {
 
+                cmd.SetComputeFloatParam(InterpolationComputer, "ZeroLevel", Wedge_ZeroGroundLevel);
+                cmd.SetComputeFloatParam(InterpolationComputer, "UpperLevel", Wedge_UpperLevel);
+                cmd.SetComputeFloatParam(InterpolationComputer, "Range", MaxScanRange);
+                cmd.SetComputeFloatParam(InterpolationComputer, "SWS_x", ShiftSwath.x);
+                cmd.SetComputeFloatParam(InterpolationComputer, "SWS_y", ShiftSwath.y);
+                cmd.SetComputeIntParam(InterpolationComputer, "SwathSpacing", SwathSpacing);
+
+                cmd.SetComputeIntParam(InterpolationComputer, "Wedge_MemoryAmount", Wedge_MemoryAmount);
+                cmd.SetComputeIntParam(InterpolationComputer, "PingNumber", wedgePingNumber);
+                cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "BeamBuffer", BeamHistoryBuffer);
+
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "Destination", Result);
+                cmd.DispatchCompute(InterpolationComputer, handleInterpolation_DrawWedgeHistory, (BeamHistoryBuffer.count + 63) / 64,
+                       1, 1);
+            }
+            else
+            {
+                cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_RenderDetect, "BeamBuffer", BeamBuffer);
+
+                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDetect, "Destination", Result);
+                cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDetect, (BeamBuffer.count + 63) / 64,
+                       1, 1);
+            }
+
+        }
 
         if (AcousticZoom == true)
         {
@@ -589,29 +732,29 @@ class F50_Pass : CustomPass
             cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (zoom_distanceBuffer.count + 1023) / 1024, 1, 1);
 
             CoreUtils.SetRenderTarget(cmd, zoom_distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeBufferParam(DistributionComputer, handleNoiseDistributionMain, "DistanceBuffer", zoom_distanceBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleNoiseDistributionMain, "Source", zoom_DistanceTexture);
-            cmd.SetComputeTextureParam(DistributionComputer, handleNoiseDistributionMain, "Destination", zoom_distribution_Transit1);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_NoiseMain, "DistanceBuffer", zoom_distanceBuffer);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Source", zoom_DistanceTexture);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Destination", zoom_distribution_Transit1);
 
-            cmd.DispatchCompute(DistributionComputer, handleNoiseDistributionMain, (zoom_DistanceTexture.width + 15) / 16,
+            cmd.DispatchCompute(DistributionComputer, handleDistribution_NoiseMain, (zoom_DistanceTexture.width + 15) / 16,
                     (zoom_DistanceTexture.height + 15) / 16, 1);
 
             cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (zoom_distanceBuffer.count + 1023) / 1024, 1, 1);
 
             CoreUtils.SetRenderTarget(cmd, zoom_distribution_Transit2, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeBufferParam(DistributionComputer, handleDistributionMain, "DistanceBuffer", zoom_distanceBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleDistributionMain, "Source", zoom_DistanceTexture);
-            cmd.SetComputeTextureParam(DistributionComputer, handleDistributionMain, "Destination", zoom_distribution_Transit2);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_Main, "DistanceBuffer", zoom_distanceBuffer);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Source", zoom_DistanceTexture);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Destination", zoom_distribution_Transit2);
 
-            cmd.DispatchCompute(DistributionComputer, handleDistributionMain, (zoom_DistanceTexture.width + 15) / 16,
+            cmd.DispatchCompute(DistributionComputer, handleDistribution_Main, (zoom_DistanceTexture.width + 15) / 16,
                     (zoom_DistanceTexture.height + 15) / 16, 1);
 
 
             CoreUtils.SetRenderTarget(cmd, zoom_distribution_Together, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Noise", zoom_distribution_Transit1);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Source", zoom_distribution_Transit2);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRemap, "Destination", zoom_distribution_Together);
-            cmd.DispatchCompute(InterpolationComputer, handleRemap, (zoom_distribution_Together.referenceSize.x + 15) / 16,
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Noise", zoom_distribution_Transit1);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Source", zoom_distribution_Transit2);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Destination", zoom_distribution_Together);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_Remap, (zoom_distribution_Together.referenceSize.x + 15) / 16,
                    (zoom_distribution_Together.referenceSize.y + 15) / 16, 1);
 
             if (Smoothing == true) BlurZoomDistribution(cmd);
@@ -646,48 +789,48 @@ class F50_Pass : CustomPass
             cmd.SetComputeBufferParam(DistributionComputer, handleClearBuffer, "DistanceBuffer", strip_distanceBuffer);
             cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (strip_distanceBuffer.count + 1023) / 1024, 1, 1);
 
-            cmd.SetComputeBufferParam(DistributionComputer, handleFillSideScanStrip, "DistanceBuffer", strip_distanceBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleFillSideScanStrip, "Source", distanceTexture);
-            cmd.SetComputeTextureParam(DistributionComputer, handleFillSideScanStrip, "Destination", scan_strip);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_FillSideScanStrip, "DistanceBuffer", strip_distanceBuffer);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillSideScanStrip, "Source", distanceTexture);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillSideScanStrip, "Destination", scan_strip);
 
-            cmd.DispatchCompute(DistributionComputer, handleFillSideScanStrip, (distanceTexture.width + 15) / 16,
+            cmd.DispatchCompute(DistributionComputer, handleDistribution_FillSideScanStrip, (distanceTexture.width + 15) / 16,
                    (distanceTexture.height + 15) / 16, 1);
 
-            SideScanLookAngle = Mathf.Clamp(SideScanLookAngle, -HorizontalFieldOfView / 2f, HorizontalFieldOfView / 2f);
-            cmd.SetComputeFloatParam(InterpolationComputer, "LookAngle", HorizontalFieldOfView / 2f + SideScanLookAngle);
+            //SideScanLookAngle = Mathf.Clamp(SideScanLookAngle, -HorizontalFieldOfView / 2f, HorizontalFieldOfView / 2f);
+            //cmd.SetComputeFloatParam(InterpolationComputer, "LookAngle", HorizontalFieldOfView / 2f + SideScanLookAngle);
 
 
             //Shift Texture left by "Scroll Amount" pixels + Render Strip "Scroll Amount" wide with interpolation
             cmd.CopyTexture(sidescan_scroll, sidescan_scroll_temp);
             cmd.SetComputeFloatParam(InterpolationComputer, "Scroll", Mathf.Clamp(ScrollAmount, 1f, 30f));
 
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "DistStrip", scan_strip);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "Source", sidescan_scroll_temp);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "Destination", sidescan_scroll);
-            cmd.DispatchCompute(InterpolationComputer, handleShiftSideScanTexture, (sidescan_scroll.referenceSize.x + 15) / 16,
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "DistStrip", scan_strip);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "Source", sidescan_scroll_temp);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "Destination", sidescan_scroll);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, (sidescan_scroll.referenceSize.x + 15) / 16,
                    (sidescan_scroll.referenceSize.y + 15) / 16, 1);
 
             //Render Ruler 
 
             cmd.SetComputeFloatParam(InterpolationComputer, "WindowsRatio", MainWindowToRulerRatio);
-            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", RulerSettings.RulerScale);
-            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", RulerSettings.showSmallDivisions ? 1 : 0);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", RulerSettings.BackGroundColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", RulerSettings.AmplitudeScaleColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", RulerSettings.DivisionsColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", RulerSettings.DigitsColor);
+            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", SideScanRulerSettings.RulerScale);
+            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", SideScanRulerSettings.showSmallDivisions ? 1 : 0);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", SideScanRulerSettings.BackGroundColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", SideScanRulerSettings.AmplitudeScaleColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", SideScanRulerSettings.DivisionsColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", SideScanRulerSettings.DigitsColor);
 
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderDepthRuler, "DistStrip", scan_strip);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderDepthRuler, "Destination", ruler);
-            cmd.DispatchCompute(InterpolationComputer, handleRenderDepthRuler, (ruler.referenceSize.x + 15) / 16, (ruler.referenceSize.y + 15) / 16, 1);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "DistStrip", scan_strip);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "Destination", ruler);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDepthRuler, (ruler.referenceSize.x + 15) / 16, (ruler.referenceSize.y + 15) / 16, 1);
 
             ////////////----Render Final SideScan Image
             CoreUtils.SetRenderTarget(cmd, sidescan_result, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Ruler", ruler);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Source", sidescan_scroll);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Destination", sidescan_result);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Ruler", ruler);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Source", sidescan_scroll);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Destination", sidescan_result);
 
-            cmd.DispatchCompute(InterpolationComputer, handleRenderSideScanFinal, (ResultDimensions.x + 31) / 32,
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderSideScanFinal, (ResultDimensions.x + 31) / 32,
                    (ResultDimensions.y + 31) / 32, 1);
 
             DrawSideScanRuler();
@@ -703,51 +846,51 @@ class F50_Pass : CustomPass
             cmd.SetComputeBufferParam(DistributionComputer, handleClearBuffer, "DistanceBuffer", strip_distanceBuffer);
             cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (strip_distanceBuffer.count + 1023) / 1024, 1, 1);
 
-            cmd.SetComputeBufferParam(DistributionComputer, handleFillSnippetsStrip, "DistanceBuffer", strip_distanceBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleFillSnippetsStrip, "Source", distanceTexture);
-            cmd.SetComputeTextureParam(DistributionComputer, handleFillSnippetsStrip, "Destination", scan_strip);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_FillSnippetsStrip, "DistanceBuffer", strip_distanceBuffer);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillSnippetsStrip, "Source", distanceTexture);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillSnippetsStrip, "Destination", scan_strip);
 
-            cmd.DispatchCompute(DistributionComputer, handleFillSnippetsStrip, (distanceTexture.width + 15) / 16,
+            cmd.DispatchCompute(DistributionComputer, handleDistribution_FillSnippetsStrip, (distanceTexture.width + 15) / 16,
                    (distanceTexture.height + 15) / 16, 1);
 
-            SideScanLookAngle = Mathf.Clamp(SideScanLookAngle, -HorizontalFieldOfView / 2f, HorizontalFieldOfView / 2f);
-            cmd.SetComputeFloatParam(InterpolationComputer, "LookAngle", HorizontalFieldOfView / 2f + SideScanLookAngle);
+            //SideScanLookAngle = Mathf.Clamp(SideScanLookAngle, -HorizontalFieldOfView / 2f, HorizontalFieldOfView / 2f);
+            //cmd.SetComputeFloatParam(InterpolationComputer, "LookAngle", HorizontalFieldOfView / 2f + SideScanLookAngle);
 
 
             //Shift Texture left by "Scroll Amount" pixels + Render Strip "Scroll Amount" wide with interpolation
             cmd.CopyTexture(snippets_scroll, snippets_scroll_temp);
             cmd.SetComputeFloatParam(InterpolationComputer, "Scroll", Mathf.Clamp(ScrollAmount, 1f, 30f));
 
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "DistStrip", scan_strip);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "Source", snippets_scroll_temp);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleShiftSideScanTexture, "Destination", snippets_scroll);
-            cmd.DispatchCompute(InterpolationComputer, handleShiftSideScanTexture, (snippets_scroll.referenceSize.x + 15) / 16,
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "DistStrip", scan_strip);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "Source", snippets_scroll_temp);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, "Destination", snippets_scroll);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_ShiftSideScanTexture, (snippets_scroll.referenceSize.x + 15) / 16,
                    (snippets_scroll.referenceSize.y + 15) / 16, 1);
 
             //Render Ruler 
 
             cmd.SetComputeFloatParam(InterpolationComputer, "WindowsRatio", MainWindowToRulerRatio);
-            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", RulerSettings.RulerScale);
-            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", RulerSettings.showSmallDivisions ? 1 : 0);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", RulerSettings.BackGroundColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", RulerSettings.AmplitudeScaleColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", RulerSettings.DivisionsColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", RulerSettings.DigitsColor);
+            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", SideScanRulerSettings.RulerScale);
+            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", SideScanRulerSettings.showSmallDivisions ? 1 : 0);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", SideScanRulerSettings.BackGroundColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", SideScanRulerSettings.AmplitudeScaleColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", SideScanRulerSettings.DivisionsColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", SideScanRulerSettings.DigitsColor);
 
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderDepthRuler, "DistStrip", scan_strip);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderDepthRuler, "Destination", ruler);
-            cmd.DispatchCompute(InterpolationComputer, handleRenderDepthRuler, (ruler.referenceSize.x + 15) / 16, (ruler.referenceSize.y + 15) / 16, 1);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "DistStrip", scan_strip);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "Destination", ruler);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDepthRuler, (ruler.referenceSize.x + 15) / 16, (ruler.referenceSize.y + 15) / 16, 1);
 
             ////////////----Render Final SideScan Image
             CoreUtils.SetRenderTarget(cmd, snippets_result, ClearFlag.Color, clearColor: Color.clear);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Ruler", ruler);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Source", snippets_scroll);
-            cmd.SetComputeTextureParam(InterpolationComputer, handleRenderSideScanFinal, "Destination", snippets_result);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Ruler", ruler);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Source", snippets_scroll);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderSideScanFinal, "Destination", snippets_result);
 
-            cmd.DispatchCompute(InterpolationComputer, handleRenderSideScanFinal, (ResultDimensions.x + 31) / 32,
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderSideScanFinal, (ResultDimensions.x + 31) / 32,
                    (ResultDimensions.y + 31) / 32, 1);
 
-            //DrawRuler();
+            DrawSnippetsRuler();
         }
         ////////////////Render Pseudo 3d
 
@@ -827,8 +970,26 @@ class F50_Pass : CustomPass
             ZoomResultImage.texture = Zoom_Result;
             ZoomResultImage.SetNativeSize();
         }
+        if (SideScanResult != null)
+        {
+            SideScanResult.gameObject.SetActive(EnableSideScan);
+            SideScanResult.texture = sidescan_result;
+            //SideScanResult.SetNativeSize();
+        }
 
+        if (SnippetsResult != null)
+        {
+            SnippetsResult.gameObject.SetActive(EnableSnippets);
+            SnippetsResult.texture = snippets_result;
+            //SideScanResult.SetNativeSize();
+        }
 
+        if (WaterColumnResult != null)
+        {
+            WaterColumnResult.gameObject.SetActive(EnableWaterColumn);
+            WaterColumnResult.texture = waterColumn_result;
+            //SideScanResult.SetNativeSize();
+        }
         DrawMarksOnUI();
         if (PolarView == false)
             DrawCartesianViewDigits();
@@ -837,14 +998,15 @@ class F50_Pass : CustomPass
 
         if (Pseudo3DResult != null)
         {
+            Pseudo3DResult.gameObject.SetActive(EnablePseudo3D);
             Pseudo3DResult.texture = pseudo3D_Result;
         }
-        if (distance_img != null)
+      /*  if (distance_img != null)
             distance_img.texture = sidescan_result;
         if (Test_img3 != null)
             Test_img3.texture = distribution_Transit1;
         if (Test_img1 != null && zoom_distribution_Together != null)
-            Test_img1.texture = snippets_result;
+            Test_img1.texture = snippets_result;*/
     }
 
     private void BlurDistribution(CommandBuffer cmd)
@@ -1268,6 +1430,11 @@ class F50_Pass : CustomPass
             pseudo3D_Result.filterMode = FilterMode.Bilinear;
             pseudo3D_Result.name = "pseudo3D_Result";
 
+            waterColumn_result?.Release();
+            waterColumn_result = RTHandles.Alloc(
+                ResultDimensions.x, ResultDimensions.y, dimension: TextureDimension.Tex2D, colorFormat: vector4Format,
+                name: "waterColumn_result", enableRandomWrite: true
+            );
             sidescan_result?.Release();
             sidescan_result = RTHandles.Alloc(
                 ResultDimensions.x, ResultDimensions.y, dimension: TextureDimension.Tex2D, colorFormat: vector4Format,
@@ -1284,6 +1451,8 @@ class F50_Pass : CustomPass
         {
             BeamBuffer?.Dispose();
             BeamBuffer = new ComputeBuffer(BeamCount, sizeof(uint) * 2, ComputeBufferType.Default);
+            BeamHistoryBuffer?.Dispose();
+            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 2, ComputeBufferType.Default);
 
         }
         if (currentResolution != _Resolution || currentBeamCount != BeamCount)
@@ -1400,7 +1569,10 @@ class F50_Pass : CustomPass
             noise_strip = RTHandles.Alloc(
                 _Resolution, 1, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
                 name: "noise_strip", enableRandomWrite: true);*/
-
+            if (waterColumn_scan_strip != null) waterColumn_scan_strip.Release();
+            waterColumn_scan_strip = RTHandles.Alloc(
+                1, 512, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
+                name: "waterColumn_scan_strip", enableRandomWrite: true);
             if (scan_strip != null) scan_strip.Release();
             scan_strip = RTHandles.Alloc(
                 _Resolution, 1, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
@@ -1409,8 +1581,19 @@ class F50_Pass : CustomPass
             ruler = RTHandles.Alloc(
                 960, 192, dimension: TextureDimension.Tex2D,
                 colorFormat: vector4Format,
-                name: "Grid and Frequency", enableRandomWrite: true
-            );
+                name: "Grid and Frequency", enableRandomWrite: true);
+
+            if (waterColumn_scroll != null) waterColumn_scroll.Release();
+            waterColumn_scroll = RTHandles.Alloc(
+                960,_Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
+                name: "waterColumn_scroll", enableRandomWrite: true);
+
+            if (waterColumn_scroll_temp != null) waterColumn_scroll_temp.Release();
+            waterColumn_scroll_temp = RTHandles.Alloc(
+                960,_Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
+                name: "waterColumn_scroll_temp", enableRandomWrite: true);
+
+
 
             if (sidescan_scroll != null) sidescan_scroll.Release();
             sidescan_scroll = RTHandles.Alloc(
@@ -1877,88 +2060,6 @@ class F50_Pass : CustomPass
             Draw(Zoom_MarksGoList, relUV, zoom);
         }
     }
-
-    private void DrawSideScanRuler()
-    {
-        var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
-
-        if (RulerSettings.RulerScale == 0) RulerSettings.RulerScale = 1;
-        if (RulerSettings.RulerScale != 0 && RulerText.Count != (RulerSettings.RulerScale) || RulerText == null)
-        {
-            CreateRulerTextList(RulerSettings.RulerScale);
-        }
-        Draw(resRect, resRect / 2f, 1f);
-
-        void Draw(Vector2 resWH, Vector2 Cent, float z)
-        {
-            Vector2 dir, offset_val, dCoord, offset_sign;
-            string text;
-
-            dir = Vector2.right;
-            offset_val = new Vector2(0f, 10f);
-            offset_sign = new Vector2(0f, 0f);
-
-            int C = RulerText.Count;
-            for (int i = 0; i < C; i++)
-            {
-                offset_sign = new Vector2(0f, 0f);
-                float xCoord = 1.0f;
-                dCoord = new Vector2(0.95f * resWH.x * (xCoord * (i) / (C - 1) - 0.5f), -resWH.y / 2) + Vector2.Perpendicular(dir) * offset_val.y;
-
-                string dim = "m";
-                float rangeVal = Mathf.Abs((MaxScanRange) * ((1 - ((float)i / (C - 1)) * 2)));
-                text = Mathf.Round(rangeVal).ToString() + dim;
-                sm(RulerText[i], text, dCoord, dir, offset_sign);
-            }
-        }
-
-        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
-        {
-            var bounds = new Vector2(mark.preferredWidth + 0f, mark.preferredHeight) / 2f;
-            mark.text = text;
-            mark.font = CustomFont;
-            mark.fontSize = RulerFontSize;
-
-            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
-
-            mark.rectTransform.localPosition = dCoord;
-            mark.color = RulerSettings.DigitsColor;
-            mark.gameObject.SetActive(true);
-        }
-    }
-
-    private void CreateRulerTextList(int size)
-    {
-        ClearRulerTextList();
-
-        RulerText = new List<Text>();
-        for (int i = 0; i < size; i++)
-        {
-            var go = new GameObject("RulerMark " + i);
-            var tmp = go.AddComponent<Text>() as Text;
-            RulerText.Add(tmp);
-            go.transform.SetParent(ruler_text_marks_placeholder);
-            go.transform.localScale = Vector3.one;
-            tmp.alignment = TextAnchor.MiddleCenter;
-            go.SetActive(false);
-        }
-    }
-
-    private void ClearRulerTextList()
-    {
-
-        if (ruler_text_marks_placeholder == null)
-        {
-            ruler_text_marks_placeholder = new GameObject("SideScanMarksPlaceholder").transform;
-            ruler_text_marks_placeholder.SetParent(SideScanResult.transform, false);
-            RulerText?.Clear();
-        }
-        else
-        {
-            for (int i = ruler_text_marks_placeholder.childCount - 1; i >= 0; i--)
-                GameObject.DestroyImmediate(ruler_text_marks_placeholder.GetChild(i).gameObject);
-        }
-    }
     private void ClearMarksOnUI()
     {
         if (marks_placeholder == null)
@@ -1986,6 +2087,7 @@ class F50_Pass : CustomPass
         }
     }
 
+
     private void CreateMarksOnUI(int count)
     {
 
@@ -2010,6 +2112,425 @@ class F50_Pass : CustomPass
             go.SetActive(false);
         }
     }
+
+
+    //SideScan Ruler
+    private void DrawSideScanRuler()
+    {
+        var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
+
+        if (SideScanRulerSettings.RulerScale == 0) SideScanRulerSettings.RulerScale = 1;
+        if (SideScanRulerSettings.RulerScale != 0 && SideScan_RulerText.Count != (SideScanRulerSettings.RulerScale) || SideScan_RulerText == null)
+        {
+            CreateRulerTextList(SideScanRulerSettings.RulerScale);
+        }
+        Draw(resRect, resRect / 2f, 1f);
+
+        void Draw(Vector2 resWH, Vector2 Cent, float z)
+        {
+            Vector2 dir, offset_val, dCoord, offset_sign;
+            string text;
+
+            dir = Vector2.right;
+            offset_val = new Vector2(0f, 10f);
+            offset_sign = new Vector2(0f, 0f);
+
+            int C = SideScan_RulerText.Count;
+            for (int i = 0; i < C; i++)
+            {
+                offset_sign = new Vector2(0f, 0f);
+                float xCoord = 1.0f;
+                dCoord = new Vector2(0.95f * resWH.x * (xCoord * (i) / (C - 1) - 0.5f), -resWH.y / 2) + Vector2.Perpendicular(dir) * offset_val.y;
+
+                string dim = "m";
+                float rangeVal = Mathf.Abs((MaxScanRange) * ((1 - ((float)i / (C - 1)) * 2)));
+                text = Mathf.Round(rangeVal).ToString() + dim;
+                sm(SideScan_RulerText[i], text, dCoord, dir, offset_sign);
+            }
+        }
+
+        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
+        {
+            var bounds = new Vector2(mark.preferredWidth + 0f, mark.preferredHeight) / 2f;
+            mark.text = text;
+            mark.font = CustomFont;
+            mark.fontSize = RulerFontSize;
+
+            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
+
+            mark.rectTransform.localPosition = dCoord;
+            mark.color = SideScanRulerSettings.DigitsColor;
+            mark.gameObject.SetActive(true);
+        }
+    }
+
+    private void CreateRulerTextList(int size)
+    {
+        ClearRulerTextList();
+
+        SideScan_RulerText = new List<Text>();
+        for (int i = 0; i < size; i++)
+        {
+            var go = new GameObject("RulerMark " + i);
+            var tmp = go.AddComponent<Text>() as Text;
+            SideScan_RulerText.Add(tmp);
+            go.transform.SetParent(sidescan_ruler_text_marks_placeholder);
+            go.transform.localScale = Vector3.one;
+            tmp.alignment = TextAnchor.MiddleCenter;
+            go.SetActive(false);
+        }
+    }
+
+    private void ClearRulerTextList()
+    {
+
+        if (sidescan_ruler_text_marks_placeholder == null)
+        {
+            sidescan_ruler_text_marks_placeholder = new GameObject("SideScanMarksPlaceholder").transform;
+            sidescan_ruler_text_marks_placeholder.SetParent(SideScanResult.transform, false);
+            SideScan_RulerText?.Clear();
+        }
+        else
+        {
+            for (int i = sidescan_ruler_text_marks_placeholder.childCount - 1; i >= 0; i--)
+                GameObject.DestroyImmediate(sidescan_ruler_text_marks_placeholder.GetChild(i).gameObject);
+        }
+    }
+    //WaterColumn Ruler
+    private void DrawSnippetsRuler()
+    {
+        var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
+
+        if (SnippetsRulerSettings.RulerScale == 0) SnippetsRulerSettings.RulerScale = 1;
+        if (SnippetsRulerSettings.RulerScale != 0 && Snippets_RulerText.Count != (SnippetsRulerSettings.RulerScale) || Snippets_RulerText == null)
+        {
+            CreateSnippetsRulerTextList(SnippetsRulerSettings.RulerScale);
+        }
+        Draw(resRect, resRect / 2f, 1f);
+
+        void Draw(Vector2 resWH, Vector2 Cent, float z)
+        {
+            Vector2 dir, offset_val, dCoord, offset_sign;
+            string text;
+
+            dir = Vector2.right;
+            offset_val = new Vector2(0f, 10f);
+            offset_sign = new Vector2(0f, 0f);
+
+            int C = Snippets_RulerText.Count;
+            for (int i = 0; i < C; i++)
+            {
+                offset_sign = new Vector2(0f, 0f);
+                float xCoord = 1.0f;
+                dCoord = new Vector2(0.95f * resWH.x * (xCoord * (i) / (C - 1) - 0.5f), -resWH.y / 2) + Vector2.Perpendicular(dir) * offset_val.y;
+
+                string dim = "m";
+                float rangeVal = Mathf.Abs((MaxScanRange) * ((1 - ((float)i / (C - 1)) * 2)));
+                text = Mathf.Round(rangeVal).ToString() + dim;
+                sm(Snippets_RulerText[i], text, dCoord, dir, offset_sign);
+            }
+        }
+
+        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
+        {
+            var bounds = new Vector2(mark.preferredWidth + 0f, mark.preferredHeight) / 2f;
+            mark.text = text;
+            mark.font = CustomFont;
+            mark.fontSize = RulerFontSize;
+
+            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
+
+            mark.rectTransform.localPosition = dCoord;
+            mark.color = SideScanRulerSettings.DigitsColor;
+            mark.gameObject.SetActive(true);
+        }
+    }
+
+    private void CreateSnippetsRulerTextList(int size)
+    {
+        ClearSnippetsRulerTextList();
+
+        Snippets_RulerText = new List<Text>();
+        for (int i = 0; i < size; i++)
+        {
+            var go = new GameObject("RulerMark " + i);
+            var tmp = go.AddComponent<Text>() as Text;
+            Snippets_RulerText.Add(tmp);
+            go.transform.SetParent(snippets_ruler_text_marks_placeholder);
+            go.transform.localScale = Vector3.one;
+            tmp.alignment = TextAnchor.MiddleCenter;
+            go.SetActive(false);
+        }
+    }
+
+    private void ClearSnippetsRulerTextList()
+    {
+
+        if (snippets_ruler_text_marks_placeholder == null)
+        {
+            snippets_ruler_text_marks_placeholder = new GameObject("SnippetsMarksPlaceholder").transform;
+            snippets_ruler_text_marks_placeholder.SetParent(SnippetsResult.transform, false);
+            Snippets_RulerText?.Clear();
+        }
+        else
+        {
+            for (int i = snippets_ruler_text_marks_placeholder.childCount - 1; i >= 0; i--)
+                GameObject.DestroyImmediate(snippets_ruler_text_marks_placeholder.GetChild(i).gameObject);
+        }
+    }
+
+
+    //WaterColumnMarks
+    private void MoveEventLine(ProfilerDisplay Display)
+    {
+        var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
+        Move(Display, resRect, resRect / 2f, 1f);
+
+        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
+        {
+            var bounds = new Vector2(mark.preferredHeight + 0f, mark.preferredWidth + 4f) / 2f;
+            mark.text = text;
+            mark.font = CustomFont;
+            mark.fontSize = EventFontSize;
+
+            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
+
+            mark.rectTransform.localPosition = dCoord;
+            mark.color = GridColor;
+            mark.gameObject.SetActive(true);
+        }
+        void Move(ProfilerDisplay display, Vector2 resWH, Vector2 Cent, float z)
+        {
+            if (display.EventOn == false)
+            {
+                for (int k = 0; k < display.Event.TextList.Count; k++)
+                {
+                    display.Event.TextList[k].text1.gameObject.SetActive(false);
+                    //display.Event.TextList[k].uvOffset = 1.2f;
+                }
+                display.eventTimer = 0f;
+                return;
+            }
+            if (display.Event.Text == false)
+            {
+                for (int k = 0; k < display.Event.TextList.Count; k++)
+                {
+                    display.Event.TextList[k].text1.gameObject.SetActive(false);
+                }
+            }
+
+            display.Event.EventInterval = Mathf.Clamp(display.Event.EventInterval, 1f, 30f);
+
+            float ScrollTime = (float)display.Scroll * (1f/FrameRate) * (960f / (float)ScrollAmount) / 1000f;
+            ScrollTime = Mathf.Clamp(ScrollTime, 0f, 60f);
+            float MaxLines = Mathf.Clamp(ScrollTime / display.Event.EventInterval, 1f, 60f);
+
+            int currentSize = display.Event.TextList.Count;
+            int neededSize = Mathf.FloorToInt(MaxLines) + 1;
+
+            CheckIfListSizeIsSufficient(out bool less);
+
+            for (int i = 0; i < display.Event.TextList.Count; i++)
+            {
+                Vector2 dir, offset_val, dCoord, offset_sign;
+                string text;
+
+                dir = Vector2.up;
+                offset_val = new Vector2(0f, 0f);
+                offset_sign = new Vector2(1f, 1f);
+
+                if (display.Event.TextList[i].uvOffset > 1)
+                {
+                    //                    Debug.Log(display.Event.TextList[i].uvOffset);
+                    if (less == true)
+                    {
+                        display.Event.TextList[i].text1.gameObject.SetActive(false);
+                        display.Event.TextPool.Push(display.Event.TextList[i]);
+                        display.Event.TextList.RemoveAt(i);
+                        i--;
+                        if (neededSize == display.Event.TextList.Count) less = false;
+                    }
+                    continue;
+                }
+                display.Event.TextList[i].uvOffset += ScrollAmount / (960f);
+
+                float uv_offset = display.Event.TextList[i].uvOffset - 0.5f;
+                text = display.Event.TextList[i].textStrip;
+                dCoord = new Vector2(uv_offset * resWH.x, resWH.y / 2) + Vector2.Perpendicular(dir) * offset_val.y;
+                dir = Vector2.Perpendicular(dir);
+                sm(display.Event.TextList[i].text1, text, dCoord, dir, offset_sign);
+            }
+
+            void CheckIfListSizeIsSufficient(out bool sizeLess)
+            {
+                sizeLess = false;
+
+                if (neededSize > currentSize)
+                {
+                    //timer = 0;
+                    int delta = Mathf.Abs(neededSize - currentSize);
+                    for (int i = 0; i < delta; i++)
+                    {
+                        display.Event.TextList.Insert(0, display.Event.TextPool.Pop());
+                    }
+                }
+                else if (neededSize < currentSize)
+                {
+                    sizeLess = true;
+                }
+            }
+        }
+
+    }
+
+    private void EmitEventLine(ProfilerDisplay display)
+    {
+        display.eventTimer += Time.deltaTime;
+        if (display.eventTimer > display.Event.EventInterval)
+        {
+            if (display.Event.TextList[0].uvOffset <= 1f) display.Event.TextList.Insert(0, display.Event.TextPool.Pop());
+            display.eventTimer -= display.Event.EventInterval;
+            display.Event.TextList[0].text1.gameObject.SetActive(true);
+            display.Event.TextList[0].uvOffset = 0f;
+            //display.Event.TextList[0].textStrip = (Mathf.Round(Time.timeSinceLevelLoad * 100f) / 100f).ToString();
+            display.Event.TextList[0].textStrip = display.Event.EventText;
+            PushFirstToEnd(display.Event.TextList);
+        }
+    }
+
+    private void PushFirstToEnd(List<EventText> list)
+    {
+        var x = list[0];
+        list.RemoveAt(0);
+        list.Add(x);
+    }
+
+    private void CreateTextPoolAndList()
+    {
+
+        ClearTextPool(WaterColumnDisplay);
+
+        CreatePoolOf(WaterColumnDisplay);
+
+        void CreatePoolOf(ProfilerDisplay display)
+        {
+            display.Event.TextList = new List<EventText>();
+            display.Event.TextPool = new Stack<EventText>();
+            for (int i = 0; i < 100; i++)
+            {
+                var go = new GameObject("GridMark " + i);
+                var tmp = go.AddComponent<Text>() as Text;
+                display.Event.TextPool.Push(new EventText(tmp));
+                go.transform.SetParent(display.TextPlaceholder);
+                go.transform.localScale = Vector3.one;
+                go.transform.eulerAngles = new Vector3(0, 0, 90);
+                tmp.alignment = TextAnchor.MiddleCenter;
+                go.SetActive(false);
+            }
+        }
+    }
+
+    private void ClearTextPool(ProfilerDisplay display)
+    {
+        string name = "WaterColumnMarksPlaceholder";
+        display.TextPlaceholder = display.DisplayImage.Find(name);
+
+        if (display.TextPlaceholder == null)
+        {
+            display.TextPlaceholder = new GameObject(name).transform;
+            display.TextPlaceholder.SetParent(display.DisplayImage, false);
+            display.Event.TextPool?.Clear();
+        }
+        else
+        {
+            for (int i = display.TextPlaceholder.childCount - 1; i >= 0; i--)
+                GameObject.DestroyImmediate(display.TextPlaceholder.GetChild(i).gameObject);
+        }
+    }
+
+    //WaterColumn Horisontal Grid Marks
+
+    private void DrawWaterColumnRuler()
+    {
+        var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
+
+        if (WaterColumnDisplay.GridCount <= 0) WaterColumnDisplay.GridCount = 1;
+        if (WaterColumnDisplay.GridCount > 0 && WaterColumn_RulerText.Count != (WaterColumnDisplay.GridCount) || WaterColumn_RulerText == null)
+        {
+            CreateWaterColumnRulerTextList(WaterColumnDisplay.GridCount);
+        }
+        Draw(resRect, resRect / 2f, 1f);
+
+        void Draw(Vector2 resWH, Vector2 Cent, float z)
+        {
+            Vector2 dir, offset_val, dCoord, offset_sign;
+            string text;
+
+            dir = Vector2.left;
+            offset_val = new Vector2(5f, 0f);
+            offset_sign = new Vector2(1f, -1f);
+
+            int C = WaterColumn_RulerText.Count;
+            for (int i = 0; i < C; i++)
+            {
+                float xCoord = 1.0f;
+                dCoord = new Vector2(resWH.x/2, resWH.y*(xCoord * (1f-((i+1f)/(C+1f))) - 0.5f)) - Vector2.Perpendicular(dir) * offset_val.y;
+
+                string dim = "m";
+                float rangeVal = Mathf.Abs((MaxScanRange) * (i+1f)/(C+1f));
+                text = Mathf.Round(rangeVal).ToString() + dim;
+                sm(WaterColumn_RulerText[i], text, dCoord, dir, offset_sign);
+            }
+        }
+
+        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
+        {
+            var bounds = new Vector2(mark.preferredWidth +0f, mark.preferredHeight) / 2f;
+            mark.text = text;
+            mark.font = CustomFont;
+            mark.fontSize = RulerFontSize;
+
+            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
+
+            mark.rectTransform.localPosition = dCoord;
+            mark.color = GridColor;
+            mark.gameObject.SetActive(true);
+        }
+    }
+
+    private void CreateWaterColumnRulerTextList(int size)
+    {
+        ClearWaterColumnRulerTextList();
+
+        WaterColumn_RulerText = new List<Text>();
+        for (int i = 0; i < size; i++)
+        {
+            var go = new GameObject("RulerMark " + i);
+            var tmp = go.AddComponent<Text>() as Text;
+            WaterColumn_RulerText.Add(tmp);
+            go.transform.SetParent(watercolumn_ruler_text_marks_placeholder);
+            go.transform.localScale = Vector3.one;
+            tmp.alignment = TextAnchor.MiddleCenter;
+            go.SetActive(false);
+        }
+    }
+
+    private void ClearWaterColumnRulerTextList()
+    {
+
+        if (watercolumn_ruler_text_marks_placeholder == null)
+        {
+            watercolumn_ruler_text_marks_placeholder = new GameObject("WaterColumnRulerMarksPlaceholder").transform;
+            watercolumn_ruler_text_marks_placeholder.SetParent(WaterColumnResult.transform, false);
+            SideScan_RulerText?.Clear();
+        }
+        else
+        {
+            for (int i = watercolumn_ruler_text_marks_placeholder.childCount - 1; i >= 0; i--)
+                GameObject.DestroyImmediate(watercolumn_ruler_text_marks_placeholder.GetChild(i).gameObject);
+        }
+    }
+
 
     protected override void Cleanup()
     {

@@ -10,8 +10,8 @@ public class RulerSettings
     public bool showSmallDivisions = false;
     public Color BackGroundColor = Color.gray;
     public Color AmplitudeScaleColor = Color.black;
-    public Color DivisionsColor = Color.black;
-    public Color DigitsColor = Color.black;
+    public Color DivisionsColor = Color.white;
+    public Color DigitsColor = Color.white;
 }
 
 public enum MarkType

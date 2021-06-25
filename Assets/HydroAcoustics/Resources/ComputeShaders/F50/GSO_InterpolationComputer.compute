@@ -6,12 +6,16 @@
 #pragma kernel RenderInCartesian
 
 #pragma kernel FillSideScanScroll
+#pragma kernel ShiftWaterColumnScroll
+
 #pragma kernel RenderSideScanFinal
 #pragma kernel RenderDepthRuler
 
+#pragma kernel RenderWaterColumnFinal
 #pragma kernel Zoom_RenderInPolar
 #pragma kernel Zoom_RenderInCartesian
 #pragma kernel RenderDetect
+#pragma kernel DrawWedgeHistory
 #include "../SonarsInterpolationBase.cginc"
 Texture2D<float4> Source;
 Texture2D<float4> DistStrip;
@@ -41,6 +45,15 @@ float WindowsRatio;
 float RulerScale;
 float ShowDivisions;
 float3 RulerBackground, RulerScaleColor, RulerDivisionsColor, RulerDigitsColor;
+
+
+//WaterColumn Variables
+float Time;
+uint WC_GridOn;
+uint WC_EventLine;
+uint WC_GridCount;
+float4 WC_GridColor;
+
 //UI
 float4 _GridColor;
 int CrossCount, GridCount, LinesCount;
@@ -73,7 +86,6 @@ float LeftUVBorder, RightUVBorder;
 float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
 float FlexModeEnabled;
 
-float DetectModeEnabled;
 //---//
 
 //Methods
@@ -240,6 +252,49 @@ float DrawGridPolar(float2 coord, float4 dim, float zoom) {
 	return g;
 }
 
+
+
+//For WaterColumn
+float4 uvOffsetArray[16];
+int uvArrayCount;
+
+float DrawEventLine(float2 coord, float4 dim) {
+
+	// Normalized pixel coordinates (from 0 to 1)
+	float2 uv = coord * dim.xy;
+
+	float s = 0.;
+	for (int i = 0; i < uvArrayCount; i++)
+	{
+
+		float uv_offset = -0.5 + uvOffsetArray[floor(i / 4)][i % 4];
+
+		float s1 = LineSegment(uv, float2(uv_offset, 0), float2(uv_offset, 1));
+
+		s += LineSharpen(s1, Thickness, dim.zw);
+	}
+	return s;
+}
+
+float DrawHorisontalGrid(float2 coord, float4 dim) {
+
+	float g = 0;
+
+	float2 tempXY = coord * dim.xy;
+
+	float norm = 1;
+	float y = 4;
+	float l;
+	for (uint i = 1; i <= (WC_GridCount); i++) {
+		float uv_offset = (norm * ((float)(i) / (WC_GridCount + 1)));
+		float l = LineSegment(tempXY, float2(-y, uv_offset), float2(y, uv_offset));
+		l = LineSharpen(l, Thickness, dim.zw);
+		g += l;
+	}
+	return g;
+}
+
+
 /////////Kernels////////////
 
 
@@ -333,9 +388,12 @@ void RenderInPolar(uint3 groupID : SV_GroupID,
 	float2 coord = float2(id.x*d_dim.x, remappedRadius)*s_dim.zw;
 
 	depth = SampleBilinear(Source, coord*s_dim.xy, s_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y + 0.01);
+	//float detect = Noise[float2(coord)*float2(BeamCount, 512)].r * 10 * step(0.5, DetectModeEnabled);
 
 	float grid = DrawGridPolar(id.xy -float2(d_dim.z/2,0), d_dim, 1 / Scale_factor)*step(MinimumRange, radius_uv_y + 0.01);
 	float4 Scolor = float4(LerpColorPixels(pow(abs(depth), Gamma)), 1);
+
+	//Scolor = lerp(Scolor, float4(0, 2, 0, 1), step(0.1, detect));
 
 	float2 center = (MouseCoords*d_dim.zw);
 	float2 zoom_wh = ZoomBox / 2 * ZoomParams.x / 100;
@@ -343,6 +401,7 @@ void RenderInPolar(uint3 groupID : SV_GroupID,
 	float box = sdBox(id.xy - center, zoom_wh, hollow)*ApplyZoom;
 
 	float4 color = lerp(Scolor, _GridColor, grid*_GridColor.w);
+
 
 	color = lerp(color, BoxColor, box);
 	Destination[id.xy] = pow(abs(color), 2.2);
@@ -397,12 +456,12 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	//depth = Source.SampleLevel(_BilinearClamp,float2(pixel_angle / HorisontalFOV, radius_uv_y), 0)*step(radius_uv_y, MaxRadius)*step(0,pixel_angle / HorisontalFOV);
 	
 	depth = SampleBilinear(Source, float2(pixel_angle / HorisontalFOV, remapped_radius), s_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
-	float detect = Noise[float2(pixel_angle / HorisontalFOV, remapped_radius)*float2(BeamCount, 512)].r * 10 *step(0.5, DetectModeEnabled);
+	//float detect = Noise[float2(pixel_angle / HorisontalFOV, remapped_radius)*float2(BeamCount, 512)].r * 10 *step(0.5, DetectModeEnabled);
 	//pixel_angle = remap(0, 1, Zoom_angle1, Zoom_angle2, pixel_angle / 130);
 	//depth = pixel_angle;
 	//depth += depth *0.1* (2 * rand(id.xy) - 1)*step(0.01, depth);
 	float4 Scolor = float4(LerpColorPixels(pow(abs(depth),Gamma)),1);
-	Scolor = lerp(Scolor, float4(0,2,0,1), step(0.1,detect));
+	//Scolor = lerp(Scolor, float4(0,2,0,1), step(0.1,detect));
 	float4 color = lerp(Scolor, _GridColor, (main+sector)*_GridColor.w);
 	
 	color = lerp(color, BoxColor, box);
@@ -683,6 +742,117 @@ void RenderDepthRuler(uint3 groupID : SV_GroupID,
 }
 */
 
+[numthreads(16, 16, 1)]
+void ShiftWaterColumnScroll(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	float4 s_dim, d_dim, n_dim;
+	s_dim = GetDimensionsFrom(Source);
+	n_dim = GetDimensionsFrom(DistStrip);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float4 s = Source[id.xy - float2(Scroll,0)];
+	float delta = (id.x % (Scroll));
+
+	float d = DistStrip[float2(0, (1-id.y*s_dim.y)*n_dim.w)]; //+delta*s_dim.x
+
+
+	//float resD = lerp(d1, d2, step(0, id.x*s_dim.x - 0.5));
+	//d = lerp(s, d, 1-delta).r; bilinear filtering
+	float flag = step(id.x -Scroll,0);
+	float col = lerp(s, d, flag);
+	Destination[id.xy] = col;
+}
+
+
+[numthreads(32, 32, 1)]
+void RenderWaterColumnFinal(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+
+	float4 s_dim, r_dim, d_dim;
+	s_dim = GetDimensionsFrom(Source);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+
+	float2 uv = (id.xy*d_dim.xy);
+
+	float2 coord = uv * s_dim.zw;
+	float2 coordSource = float2(uv.x , uv.y)*s_dim.zw;
+
+	//depth = SampleBilinear(Source, coord*s_dim.xy, s_dim).r;
+	float depth = Source[coordSource];
+	float grid = WC_GridOn * DrawHorisontalGrid(id.xy - float2(d_dim.z / 2, 0), d_dim) + WC_EventLine * DrawEventLine(id.xy - float2(d_dim.z / 2, 0), d_dim);
+	float4 Scolor = float4(LerpColorPixels(pow(abs(depth), Gamma)), 1);
+
+	float3 color = lerp(Scolor, WC_GridColor, grid*_GridColor.w).xyz;
+
+	Destination[id.xy] = float4(pow(color, 2.2), 1);
+
+}
+/*
+[numthreads(16, 16, 1)]
+void RenderDepthRuler(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	const float UNITY_PI = 3.1415;
+	float4 ds_dim, d_dim;
+	ds_dim = GetDimensionsFrom(DistStrip);
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+	d_dim.xy = 1 / d_dim.zw;
+	float2 uv = (id.xy)*d_dim.xy;
+
+	//
+	float uvx = abs(uv.y - 0.5) * 2;
+
+
+	//sample with offset
+	float d1_up = SampleLinearY(DistStrip, float2(0, uvx+ ds_dim.y), ds_dim);
+	float d1_down = SampleLinearY(DistStrip, float2(0, uvx - ds_dim.y), ds_dim);
+
+	float d2_up = SampleLinearY(DistStrip, float2(1 - ds_dim.x, uvx + ds_dim.y), ds_dim);
+	float d2_down = SampleLinearY(DistStrip, float2(1 - ds_dim.x, uvx - ds_dim.y), ds_dim);
+
+	float resDup = lerp(d1_up, d2_up, step(0, id.y*d_dim.y - 0.5));
+	float resDdown = lerp(d1_down, d2_down, step(0, id.y*d_dim.y - 0.5));
+
+
+	float minRes = min(resDup, resDdown);
+	float maxRes = max(resDup, resDdown);
+
+	minRes = minRes * step(LowerFactor, MiddleFactor);
+	minRes = remap(0, 1, LowerFactor, MiddleFactor, minRes);
+	minRes = clamp(minRes, 0, 1);
+
+	maxRes = maxRes * step(LowerFactor, MiddleFactor);
+	maxRes = remap(0, 1, LowerFactor, MiddleFactor, maxRes);
+	maxRes = clamp(maxRes, 0, 1);
+
+	float scale = step(uv.x,0.03+maxRes)*step(minRes, uv.x);
+	float m = 1 / (RulerScale - 1);
+	float thickness = 0.003;
+
+	float2 uvSym = float2(uv.x, (1 + thickness)*(uv.y) % (m / 5));
+	float Line = LineSegment(uvSym, float2(0.6, 0.), float2(0.65, 0));
+	Line = LineSharpen(Line, thickness, d_dim.ww) *ShowDivisions;
+
+	uvSym = float2(uv.x, (1 + thickness)*uv.y % (m));
+	float sline = LineSegment(uvSym, float2(0.6, 0.), float2(0.85, 0.));
+	Line += LineSharpen(sline, thickness*1.5, d_dim.ww);
+	Line = 0;
+	float3 col = lerp(RulerBackground, RulerScaleColor, scale);
+	col = lerp(col, RulerDivisionsColor, Line);
+	Destination[id.xy] = float4(col, 1);
+}
+*/
+
 
 
 [numthreads(16, 16, 1)]
@@ -736,8 +906,7 @@ void RenderDepthRuler(uint3 groupID : SV_GroupID,
 	col = lerp(col, RulerDivisionsColor, Line);
 	Destination[id.xy] = float4(col, 1);
 }
-
-
+/*
 [numthreads(64, 1, 1)]
 void RenderDetect(uint3 groupID : SV_GroupID,
 	// 3D ID of thread group; range depends on Dispatch call
@@ -783,4 +952,149 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 		Destination[uv*d_dim.zw + i * dy] = 1;// BeamBuffer[id.x].y;
 		Destination[uv*d_dim.zw - i * dy] = 1;// BeamBuffer[id.x].y;
 	}
+}*/
+[numthreads(64, 1, 1)]
+void RenderDetect(uint3 groupID : SV_GroupID,
+	// 3D ID of thread group; range depends on Dispatch call
+	uint3 groupThreadID : SV_GroupThreadID,
+	// 3D ID of thread in a thread group; range depends on numthreads
+	uint groupIndex : SV_GroupIndex,
+	// flattened/linearized SV_GroupThreadID. 
+	// groupIndex specifies the index within the group (0 to 63)
+	uint3 id : SV_DispatchThreadID)
+	// = SV_GroupID * numthreads + SV_GroupThreadID
+	// id.x specifies the row in the input texture image
+{
+	float4 d_dim;
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+
+	d_dim.xy = 1 / d_dim.zw;
+
+	float beam_num = id.x % BeamCount;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+
+	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / 512.;
+	flexX = ((flexX)*B_density + startUV);
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x / BeamCount);
+	//coordX = id.x / BeamCount;
+	float2 uv = float2(coordX, float(BeamBuffer[id.x].x) / 512.);
+	float a = uv.x *HorisontalFOV;
+	a -= -(Rotation - HorisontalFOV / 2) % 360;
+	a = (360 + a) % 360;
+	//a = 90;
+	a *= 0.0174533;
+
+
+	float r = uv.y / 1.99;
+	uv = float2(r*sin(a), r*cos(a));
+	uv *= d_dim.xy;
+	float minRes = min(d_dim.z, d_dim.w);
+	uv *= minRes;
+	uv *= Scale_factor;
+	uv += 0.5;
+	uv += Offset;
+
+	//Destination[uv*d_dim.ww] = 1;
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+	//Destination[uv*d_dim.zw] = BeamBuffer[beam_num].y;
+	for (int i = 0; i < 2; i++) {
+
+		Destination[uv*d_dim.zw + i * dx] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw - i * dx] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw + i * dy] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw - i * dy] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
+	}
+
+}
+
+int Wedge_MemoryAmount;
+int PingNumber;
+float2 SwathShift;
+int SwathSpacing;
+
+float SWS_x, SWS_y;
+
+int mod(float a, float b) {
+	return (((a % b) + b) % b);
+}
+
+
+float ZeroLevel, UpperLevel;
+float DetectModeEnabled;
+float Range;
+[numthreads(64, 1, 1)]
+void DrawWedgeHistory(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	float4 d_dim;
+	Destination.GetDimensions(d_dim.z, d_dim.w);
+
+	d_dim.xy = 1 / d_dim.zw;
+
+	float beam_num = id.x % BeamCount;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+
+	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / 512.;
+	flexX = ((flexX)*B_density + startUV);
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
+	//coordX = id.x / BeamCount;
+	float2 uv = float2(coordX, float(BeamBuffer[id.x].x) / 512.);
+	float a = uv.x *HorisontalFOV;
+	a -= -(Rotation  - HorisontalFOV / 2) % 360;
+	a = (360 + a) % 360;
+	//a = 90;
+	a *= 0.0174533;
+	
+	
+	float r = uv.y/2;
+	uv = float2(r*sin(a), r*cos(a));
+	uv *= d_dim.xy;
+	float minRes = min(d_dim.z, d_dim.w);
+	uv *= minRes;
+	uv *= Scale_factor;
+	uv += 0.5;
+	uv += Offset;
+
+	float beam_pos = (id.x / BeamCount);
+	int j = floor(mod((PingNumber - clamp(beam_pos,0,BeamCount)) , Wedge_MemoryAmount));
+	uv = uv + float2(SWS_x,SWS_y)*d_dim.xy*SwathSpacing*j;
+
+	//Destination[uv*d_dim.ww] = 1;
+	float2 dx = float2(1, 0);
+	float2 dy = float2(0, 1);
+	//Destination[uv*d_dim.zw] = BeamBuffer[beam_num].y;
+	float c = float(BeamBuffer[id.x].y) / 1023.;
+	c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
+	c = remap(0, 1, ZeroLevel, UpperLevel, c);
+	float4 col = lerp(float4(0,1,0,1),float4(1,0,0,1),c);
+	for (int i = 1; i < 2; i++) {
+
+		Destination[uv*d_dim.zw + i * dx] =  col;
+		Destination[uv*d_dim.zw - i * dx] = col;
+		Destination[uv*d_dim.zw + i * dy] = col;
+		Destination[uv*d_dim.zw - i * dy] = col;
+	}
+
+
 }
