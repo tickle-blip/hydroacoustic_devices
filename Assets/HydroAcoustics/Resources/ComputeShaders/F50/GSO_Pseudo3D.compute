@@ -3,14 +3,24 @@
 Texture2D<float4> Source;
 RWTexture2D<float4> Destination;
 
+StructuredBuffer<uint3> BeamHistoryBuffer;
 RWStructuredBuffer<float4> PosBuffer;
 
 #include "../SonarsDistributionBase.cginc"
 
+//Flex Mode
+float BeamCount;
+float BeamCount_left, BeamCount_mid;
+float LeftUVBorder, RightUVBorder;
+float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
+float FlexModeEnabled;
+
 
 int PingNumber, PingCount;
+
 float Range;
 float HorisontalFOV;
+float VerticalFOV;
 float4x4 _InvViewProjMatrix, _InvViewMatrix;
 float4x4 PseudoCam_VPMatrix;
 
@@ -26,5 +36,50 @@ void MapDots(uint2 id : SV_DispatchThreadID)
 	//pos = pos + pos *0.01* r(id.xy);
 	//float depth = pos.y;
 	//float s = remap(0, 1, ZeroLevel, UpperLevel, depth);
+
+
+
 	PosBuffer[PingNumber*PingCount + id.x + id.y*s_dim.z] = float4(pos,1);
 }
+
+/*
+
+[numthreads(64, 1, 1)]
+void MapDots(uint2 id : SV_DispatchThreadID)
+{
+
+	float beam_num = id.x % BeamCount;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+
+	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / Resolution;
+	flexX = ((flexX)*B_density + startUV);
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
+	//coordX = id.x / BeamCount;
+	float2 uv = float3(coordX, float(BeamBuffer[id.x].x) / 512., float(BeamBuffer[id.x].z) / 1023.); //uv.x - angleHOR, uv.y - distance, uv.z - angleVER
+	float aHor = uv.x *HorisontalFOV*0.0174533; //in rad
+	float aVer = uv.z*VerticalFOV*0.0174533; //in rad
+	
+	r = uv.y*Range;
+	
+	float3 viewPos = float3(sin(aHor), sin(aVer), cos(aHor))*r;
+
+	float beam_pos = (id.x / BeamCount);
+	int j = floor(mod((PingNumber - clamp(beam_pos, 0, BeamCount)), Wedge_MemoryAmount));
+	uv = uv + float2(SWS_x, SWS_y)*d_dim.xy*SwathSpacing*j;
+
+
+	float c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
+	c = remap(0, 1, ZeroLevel, UpperLevel, c);
+
+	PosBuffer[PingNumber*PingCount + id.x + id.y*s_dim.z] = float4(pos, 1);
+}
+*/

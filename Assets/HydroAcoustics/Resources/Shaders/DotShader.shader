@@ -91,10 +91,10 @@
 				float k = (1 - IN[0].dist);
 				float4 viewP = mul(_CameraViewMatrix, p);
 				float size = lerp(0.04, 0.1, k);
-				for (int i = 0; i <= 10*k; i++)
+				for (int i = 0; i <= 5*k; i++)
 				{
 					float3 rand = float3(r(p.xy * 5 + i), r(p.yz * 12 + i), r(p.xy*i + 2));
-					float4 centPos = viewP + float4(rand, 0);
+					float4 centPos = viewP +float4(rand/4, 0);
 
 					for (int k = 0; k < 3; k++) 
 					{

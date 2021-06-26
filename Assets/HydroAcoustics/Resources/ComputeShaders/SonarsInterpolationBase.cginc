@@ -106,3 +106,7 @@ float PrintValue(float2 vStringCoords, float fValue, float fMaxDigits, float fDe
 }
 //-------//
 
+
+int mod(float a, float b) {
+	return (((a % b) + b) % b);
+}

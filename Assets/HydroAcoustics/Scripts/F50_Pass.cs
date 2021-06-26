@@ -90,20 +90,21 @@ class F50_Pass : CustomPass
     public RulerSettings SnippetsRulerSettings = new RulerSettings();
 
     public bool EnableDetect = false;
+
+    public float MinDetectRange = 0f;
+    public float MaxDetectRange = 100f;
     public bool EnableHistory = false;
-    public float Wedge_ZeroGroundLevel = 5f;
-    public float Wedge_UpperLevel = 10f;
+    public float HistoryPingDelay = 1f;
+    //public float Wedge_ZeroGroundLevel = 5f;
+    //public float Wedge_UpperLevel = 10f;
     public Vector2 ShiftSwath = new Vector2(0f, -1f);
     public int SwathSpacing = 1;
-    public float WedgePingDelay = 1f;
     public int Wedge_MemoryAmount = 256;
     //Pseudo3d Settings
     public bool EnablePseudo3D = false;
     public bool ExplorationMode3d = false;
-    public int Pseudo3D_Resolution = 120;
     public float ZeroGroundLevel = 0f;
     public float UpperLevel = 3f;
-    public float PingDelay = 1f;
     public int MemoryAmount = 100;
 
     //Image Display settings
@@ -497,13 +498,18 @@ class F50_Pass : CustomPass
 
 
         float bc = (float)BeamCount;
-        cmd.SetComputeFloatParam(InterpolationComputer, "DetectModeEnabled", EnableDetect ? 1f : 0f);
-        cmd.SetComputeFloatParam(InterpolationComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
+
+        cmd.SetComputeFloatParam(DistributionComputer, "Resolution", (float)_Resolution);
         cmd.SetComputeFloatParam(DistributionComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount", bc);
 
-        //Fill FlexMode parameters
+        cmd.SetComputeFloatParam(InterpolationComputer, "Resolution", (float)_Resolution);
+        cmd.SetComputeFloatParam(InterpolationComputer, "DetectModeEnabled", EnableDetect ? 1f : 0f);
+        cmd.SetComputeFloatParam(InterpolationComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
+
+
+        //////Fill FlexMode parameters////////////
         CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
         CoreUtils.SetRenderTarget(cmd, distribution_Transit2, ClearFlag.Color, clearColor: Color.clear);
 
@@ -521,6 +527,7 @@ class F50_Pass : CustomPass
 
         float leftcount = (OutBeamRange * (leftUV) / (1 + leftUV - rightUV));
         Debug.Log(BeamCount - (leftcount + InBeamRange));
+
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_left", leftcount);
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_mid", InBeamRange);
 
@@ -532,7 +539,8 @@ class F50_Pass : CustomPass
 
         cmd.SetComputeFloatParam(DistributionComputer, "LeftNumBorder", outBeamDensity);
         cmd.SetComputeFloatParam(DistributionComputer, "RightNumBorder", inBeamDensity);
-
+        //////END FILL////////////
+        
         //ClearDistanceBuffer
         cmd.SetComputeBufferParam(DistributionComputer, handleClearBuffer, "DistanceBuffer", distanceBuffer);
         cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (distanceBuffer.count + 1023) / 1024, 1, 1);
@@ -565,7 +573,8 @@ class F50_Pass : CustomPass
         inBeamDensity = (rightUV - leftUV) * distribution_Together.referenceSize.x / (float)InBeamRange;
 
         defBeamDensity = (float)(distribution_Together.referenceSize.x / (float)BeamCount);
-
+        
+        cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_left", leftcount);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_mid", InBeamRange);
 
@@ -575,8 +584,6 @@ class F50_Pass : CustomPass
         cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "DefaultBeamDensity", defBeamDensity);
 
-        cmd.SetComputeFloatParam(InterpolationComputer, "LeftNumBorder", outBeamDensity);
-        cmd.SetComputeFloatParam(InterpolationComputer, "RightNumBorder", inBeamDensity);
 
 
         cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Noise", distribution_Transit1);
@@ -642,13 +649,27 @@ class F50_Pass : CustomPass
         }
 
 
-        if (EnableDetect == true && wedge_pingTime > WedgePingDelay)
+        if (EnableDetect == true && wedge_pingTime > HistoryPingDelay)
         {
 
+            
+            var v = bakingCamera.cameraToWorldMatrix;
+            var p = GL.GetGPUProjectionMatrix(bakingCamera.projectionMatrix, true);
+            var vp = p * v;
             wedge_pingTime = 0;
 
-            cmd.SetComputeIntParam(DistributionComputer, "PingNumber", wedgePingNumber);
 
+            cmd.SetComputeFloatParam(DistributionComputer, "MinDetectRange", MinDetectRange/MaxScanRange);
+            cmd.SetComputeFloatParam(DistributionComputer, "MaxDetectRange", MaxDetectRange/MaxScanRange);
+
+            cmd.SetComputeFloatParam(DistributionComputer, "OutBeamDensity", outBeamDensity);
+            cmd.SetComputeFloatParam(DistributionComputer, "InBeamDensity", inBeamDensity);
+            cmd.SetComputeFloatParam(DistributionComputer, "DefaultBeamDensity", defBeamDensity);
+
+            cmd.SetComputeIntParam(DistributionComputer, "PingNumber", wedgePingNumber);
+            cmd.SetComputeMatrixParam(DistributionComputer, "_InvViewMatrix", v);
+            cmd.SetComputeIntParam(DistributionComputer, "Wedge_MemoryAmount", Wedge_MemoryAmount);
+            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "PosBuffer", pseudo3D_buffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamHistoryBuffer", BeamHistoryBuffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamBuffer", BeamBuffer);
             cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Noise1", distribution_Transit2);
@@ -694,15 +715,17 @@ class F50_Pass : CustomPass
             if (EnableHistory == true)
             {
 
-                cmd.SetComputeFloatParam(InterpolationComputer, "ZeroLevel", Wedge_ZeroGroundLevel);
-                cmd.SetComputeFloatParam(InterpolationComputer, "UpperLevel", Wedge_UpperLevel);
+                //cmd.SetComputeFloatParam(InterpolationComputer, "ZeroLevel", Wedge_ZeroGroundLevel);
+                //cmd.SetComputeFloatParam(InterpolationComputer, "UpperLevel", Wedge_UpperLevel);
                 cmd.SetComputeFloatParam(InterpolationComputer, "Range", MaxScanRange);
                 cmd.SetComputeFloatParam(InterpolationComputer, "SWS_x", ShiftSwath.x);
                 cmd.SetComputeFloatParam(InterpolationComputer, "SWS_y", ShiftSwath.y);
                 cmd.SetComputeIntParam(InterpolationComputer, "SwathSpacing", SwathSpacing);
 
+
                 cmd.SetComputeIntParam(InterpolationComputer, "Wedge_MemoryAmount", Wedge_MemoryAmount);
                 cmd.SetComputeIntParam(InterpolationComputer, "PingNumber", wedgePingNumber);
+
                 cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "BeamBuffer", BeamHistoryBuffer);
 
                 cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "Destination", Result);
@@ -896,50 +919,14 @@ class F50_Pass : CustomPass
 
         if (EnablePseudo3D == true)
         {
-            if (pingTime > PingDelay && !ExplorationMode3d)
-            {
-                pingTime = 0;
-                //Draw pseudo3D positions
-
-                bakingCamera.targetTexture = pseudo3D_Positions;
-
-                //SetCameraMatrices(cmd, new Vector4(0,0.45f,1,0.1f));
-                SetCameraMatrices(cmd, new Vector4(0f, 0f, 1f, 1f));
-                bakingCamera.TryGetCullingParameters(out var cullingParams);
-                cullingParams.cullingOptions = CullingOptions.ShadowCasters;
-                cullingResult = renderContext.Cull(ref cullingParams);
-                CoreUtils.SetRenderTarget(cmd, pseudo3D_Positions, ClearFlag.All, clearColor: Color.black);
-                var result = new RendererListDesc(shaderTags, cullingResult, bakingCamera)
-                {
-                    rendererConfiguration = PerObjectData.None,
-                    renderQueueRange = RenderQueueRange.all,
-                    sortingCriteria = SortingCriteria.CommonOpaque,
-                    overrideMaterial = pseudo3dMaterial,
-                    overrideMaterialPassIndex = pseudo3dMaterial.FindPass("ForwardOnly"),
-                    excludeObjectMotionVectors = false,
-                    stateBlock = new RenderStateBlock(RenderStateMask.Depth) { depthState = new DepthState(true, CompareFunction.LessEqual) }
-                };
-                HDUtils.DrawRendererList(renderContext, cmd, RendererList.Create(result));
-
-                pingNumber = pingNumber < (MemoryAmount - 1) ? pingNumber + 1 : 0;
-                cmd.SetComputeIntParam(Pseudo3dComputer, "PingNumber", pingNumber);
-                cmd.SetComputeIntParam(Pseudo3dComputer, "PingCount", pseudo3D_buffer.count / MemoryAmount);
-                cmd.SetComputeFloatParam(Pseudo3dComputer, "ZeroLevel", ZeroGroundLevel);
-                cmd.SetComputeFloatParam(Pseudo3dComputer, "UpperLevel", UpperLevel);
-                cmd.SetComputeBufferParam(Pseudo3dComputer, handleMapDots, "PosBuffer", pseudo3D_buffer);
-                cmd.SetComputeTextureParam(Pseudo3dComputer, handleMapDots, "Source", pseudo3D_Positions);
-                cmd.DispatchCompute(Pseudo3dComputer, handleMapDots, (pseudo3D_Positions.width + 15) / 16,
-                       (pseudo3D_Positions.height + 15) / 16, 1);
-            }
-
+            var v = pseudo3D_camera.worldToCameraMatrix;
+            var p = GL.GetGPUProjectionMatrix(pseudo3D_camera.projectionMatrix, true);
+            var vp = p * v;
             Vector4 surfLevels = new Vector4(ZeroGroundLevel, UpperLevel, 1, 1);
             //cmd.SetGlobalFloatArray("SurfaceLevels", surfLevels);
             cmd.SetGlobalVector("SurfaceLevels", surfLevels);
             dotMaterial.SetBuffer("buffer", pseudo3D_buffer);
 
-            var v = pseudo3D_camera.worldToCameraMatrix;
-            var p = GL.GetGPUProjectionMatrix(pseudo3D_camera.projectionMatrix, true);
-            var vp = p * v;
             dotMaterial.SetMatrix("_CameraViewMatrix", v);
             dotMaterial.SetMatrix("_InvViewMatrix", v.inverse);
 
@@ -1447,7 +1434,7 @@ class F50_Pass : CustomPass
             );
         }
 
-        if (BeamBuffer == null || BeamCount != BeamBuffer.count)
+        if (BeamBuffer == null || BeamCount != BeamBuffer.count || BeamCount*Wedge_MemoryAmount != BeamHistoryBuffer.count)
         {
             BeamBuffer?.Dispose();
             BeamBuffer = new ComputeBuffer(BeamCount, sizeof(uint) * 2, ComputeBufferType.Default);
@@ -1455,6 +1442,7 @@ class F50_Pass : CustomPass
             BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 2, ComputeBufferType.Default);
 
         }
+
         if (currentResolution != _Resolution || currentBeamCount != BeamCount)
         {
 
@@ -1541,21 +1529,12 @@ class F50_Pass : CustomPass
 
 
 
-        //Pseudo 3D Textures and buffers
-        if (Pseudo3D_Resolution <= 0) Pseudo3D_Resolution = 1;
-        int ps3d_Res_width = Mathf.FloorToInt(Pseudo3D_Resolution * 4);
-        if ((pseudo3D_Positions == null || Pseudo3D_Resolution != pseudo3D_Positions.height) && Pseudo3D_Resolution != 0)
-        {
-            if (pseudo3D_Positions != null) pseudo3D_Positions.Release();
-            pseudo3D_Positions = new RenderTexture((ps3d_Res_width), Pseudo3D_Resolution, 16, vector4Format);
-            pseudo3D_Positions.filterMode = FilterMode.Point;
-            pseudo3D_Positions.name = "pseudo3D_Positions";
-        }
 
-        if ((pseudo3D_buffer == null || MemoryAmount * (ps3d_Res_width) * Pseudo3D_Resolution != pseudo3D_buffer.count) && Pseudo3D_Resolution != 0)
+
+        if ((pseudo3D_buffer == null || BeamCount * Wedge_MemoryAmount != pseudo3D_buffer.count))
         {
             if (pseudo3D_buffer != null) pseudo3D_buffer.Dispose();
-            pseudo3D_buffer = new ComputeBuffer((ps3d_Res_width) * Pseudo3D_Resolution * MemoryAmount, sizeof(float) * 4, ComputeBufferType.Default);
+            pseudo3D_buffer = new ComputeBuffer(BeamCount * Wedge_MemoryAmount, sizeof(float) * 3, ComputeBufferType.Default);
         }
 
 

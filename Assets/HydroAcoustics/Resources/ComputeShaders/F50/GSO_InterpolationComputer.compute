@@ -26,6 +26,7 @@ RWTexture2D<float4> Destination;
 Texture2D<float4> Noise;
 
 //Fields
+float Resolution;
 float CurrentRotAngle;
 float DiscreteAngleStep;
 
@@ -981,7 +982,7 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 
-	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / 512.;
+	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / Resolution;
 	flexX = ((flexX)*B_density + startUV);
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x / BeamCount);
@@ -994,7 +995,7 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 	a *= 0.0174533;
 
 
-	float r = uv.y / 1.99;
+	float r = uv.y / 2;
 	uv = float2(r*sin(a), r*cos(a));
 	uv *= d_dim.xy;
 	float minRes = min(d_dim.z, d_dim.w);
@@ -1024,10 +1025,6 @@ int SwathSpacing;
 
 float SWS_x, SWS_y;
 
-int mod(float a, float b) {
-	return (((a % b) + b) % b);
-}
-
 
 float ZeroLevel, UpperLevel;
 float DetectModeEnabled;
@@ -1054,7 +1051,7 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 
-	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / 512.;
+	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / Resolution;
 	flexX = ((flexX)*B_density + startUV);
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
@@ -1083,17 +1080,30 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 	//Destination[uv*d_dim.ww] = 1;
 	float2 dx = float2(1, 0);
 	float2 dy = float2(0, 1);
-	//Destination[uv*d_dim.zw] = BeamBuffer[beam_num].y;
-	float c = float(BeamBuffer[id.x].y) / 1023.;
+	//
+	
+	/*float c = float(BeamBuffer[id.x].y) / 1023.;
 	c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
+	
 	c = remap(0, 1, ZeroLevel, UpperLevel, c);
-	float4 col = lerp(float4(0,1,0,1),float4(1,0,0,1),c);
-	for (int i = 1; i < 2; i++) {
 
-		Destination[uv*d_dim.zw + i * dx] =  col;
-		Destination[uv*d_dim.zw - i * dx] = col;
-		Destination[uv*d_dim.zw + i * dy] = col;
-		Destination[uv*d_dim.zw - i * dy] = col;
+	float3 BotCol = float3(0.1, 0.8, 0.1);
+	float3 MidCol = float3(1, 1, 0);
+	float3 UpCol = float3(1, 0, 0);
+	// sample the texture
+	float middle = 0.5;
+	float factor = c;
+	float3 col = lerp(BotCol, MidCol, clamp((factor) / middle, 0, 1))*step(factor, middle) + lerp(MidCol, UpCol, clamp((factor - middle) / middle, 0, 1))*step(middle, factor);
+	*/
+	
+	float4 col = float4(0, BeamBuffer[beam_num].y, 0, 1);
+	
+	for (int i = 1; i < 2; i++) {
+		Destination[uv*d_dim.zw] = col;
+		Destination[uv*d_dim.zw + i * dx] =  float4(col);
+		Destination[uv*d_dim.zw - i * dx] = float4(col);
+		Destination[uv*d_dim.zw + i * dy] = float4(col);
+		Destination[uv*d_dim.zw - i * dy] = float4(col);
 	}
 
 

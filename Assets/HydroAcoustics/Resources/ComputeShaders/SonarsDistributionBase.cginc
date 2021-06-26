@@ -196,3 +196,8 @@ float PaniniYfromX(float yTarget,float FOV) {
 	//return the y value.
 	return percent;
 };
+
+int mod(float a, float b) {
+	return (((a % b) + b) % b);
+}
+//
