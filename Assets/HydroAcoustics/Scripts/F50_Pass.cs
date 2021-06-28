@@ -203,6 +203,7 @@ class F50_Pass : CustomPass
     //Final Texture
     [HideInInspector] public RTHandle Result, Zoom_Result;
 
+    private GraphicsFormat uintFormat;
     private GraphicsFormat vectorFormat;
     private GraphicsFormat vector4Format;
     //Texture Handles
@@ -339,14 +340,13 @@ class F50_Pass : CustomPass
         handleDistribution_NoiseMain = DistributionComputer.FindKernel("MapBeamNoiseDistanceData");
         handleDistribution_Main = DistributionComputer.FindKernel("MapBeamDistanceData");
 
-        handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
-        handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip"); 
-
         handleDistribution_FillWaterColumnStrip = DistributionComputer.FindKernel("FillWaterColumnStrip");
-
         handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
-        handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
+         handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
+         handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip"); 
 
+         
+        
         handleInterpolation_Remap = InterpolationComputer.FindKernel("RemapQuad");
         handleInterpolation_RenderInPolar = InterpolationComputer.FindKernel("RenderInPolar");
         handleInterpolation_RenderInCartesian = InterpolationComputer.FindKernel("RenderInCartesian");
@@ -414,7 +414,7 @@ class F50_Pass : CustomPass
         }
         if (Type_Creator == null)
             return;
-
+        uintFormat = GraphicsFormat.R32_UInt;
         vectorFormat = GraphicsFormat.R32_SFloat;
         vector4Format = GraphicsFormat.R16G16B16A16_SFloat;
 
@@ -526,7 +526,7 @@ class F50_Pass : CustomPass
         float defBeamDensity = (float)(distanceTexture.width / (float)BeamCount);
 
         float leftcount = (OutBeamRange * (leftUV) / (1 + leftUV - rightUV));
-        Debug.Log(BeamCount - (leftcount + InBeamRange));
+        //Debug.Log(BeamCount - (leftcount + InBeamRange));
 
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_left", leftcount);
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_mid", InBeamRange);
@@ -548,7 +548,7 @@ class F50_Pass : CustomPass
         //Fill Beam Data Main
         cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_Main, "DistanceBuffer", distanceBuffer);
         cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Source", distanceTexture);
-        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Destination", distribution_Transit1);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "DestinationUINT", distribution_Transit1);
         cmd.DispatchCompute(DistributionComputer, handleDistribution_Main, BeamCount,
                 (distanceTexture.height+31)/32, 1);
 
@@ -560,7 +560,7 @@ class F50_Pass : CustomPass
         //Fill Beam Data Noise
         cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_NoiseMain, "DistanceBuffer", distanceBuffer);
         cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Source", distanceTexture);
-        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "Destination", distribution_Transit2);
+        cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_NoiseMain, "DestinationUINT", distribution_Transit2);
         cmd.DispatchCompute(DistributionComputer, handleDistribution_NoiseMain, BeamCount,
                 (distanceTexture.height + 31) / 32, 1);
 
@@ -584,14 +584,14 @@ class F50_Pass : CustomPass
         cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "DefaultBeamDensity", defBeamDensity);
 
+        ////
 
-
-        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Noise", distribution_Transit1);
-        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Source", distribution_Transit2);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_1", distribution_Transit1);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_2", distribution_Transit2);
         cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Destination", distribution_Together);
         cmd.DispatchCompute(InterpolationComputer, handleInterpolation_Remap, (distribution_Together.referenceSize.x + 31) / 32,
                (distribution_Together.referenceSize.y + 31) / 32, 1);
-
+        
         if (EnableWaterColumn == true)
         {
 
@@ -608,8 +608,8 @@ class F50_Pass : CustomPass
                 DrawWaterColumnRuler();
                 cmd.SetComputeIntParam(DistributionComputer, "WC_BeamNumber", WC_BeamNumber);
                 //Fill WaterColumn Strip
-                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Noise1", distribution_Transit2);
-                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Source", distribution_Transit1);
+                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Read_TexUint_1", distribution_Transit2);
+                cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Read_TexUint_2", distribution_Transit1);
                 cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_FillWaterColumnStrip, "Destination", waterColumn_scan_strip);
                 cmd.DispatchCompute(DistributionComputer, handleDistribution_FillWaterColumnStrip, (distribution_Transit1.referenceSize.y + 63) / 64,
                        1, 1);
@@ -647,7 +647,7 @@ class F50_Pass : CustomPass
                        (waterColumn_result.referenceSize.y + 31) / 32, 1);
             }
         }
-
+        
 
         if (EnableDetect == true && wedge_pingTime > HistoryPingDelay)
         {
@@ -672,8 +672,8 @@ class F50_Pass : CustomPass
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "PosBuffer", pseudo3D_buffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamHistoryBuffer", BeamHistoryBuffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamBuffer", BeamBuffer);
-            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Noise1", distribution_Transit2);
-            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Source", distribution_Transit1);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Read_TexUint_1", distribution_Transit2);
+            cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Read_TexUint_2", distribution_Transit1);
             cmd.DispatchCompute(DistributionComputer, handleDistribution_ComputeDetect, (distribution_Transit1.referenceSize.x + 63) / 64,
                    1, 1);
 
@@ -710,6 +710,7 @@ class F50_Pass : CustomPass
             cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderInCartesian, (ResultDimensions.x + 31) / 32,
                   (ResultDimensions.y + 31) / 32, 1);
         }
+       
         if (EnableDetect == true)
         {
             if (EnableHistory == true)
@@ -742,7 +743,7 @@ class F50_Pass : CustomPass
             }
 
         }
-
+        
         if (AcousticZoom == true)
         {
             CoreUtils.SetRenderTarget(cmd, zoom_DistanceTexture, ClearFlag.All, clearColor: Color.black);
@@ -942,7 +943,7 @@ class F50_Pass : CustomPass
 
 
         }
-
+        
 
 
 
@@ -1004,15 +1005,19 @@ class F50_Pass : CustomPass
         cmd.SetComputeBufferParam(BlurComputer, handleBlurVer, "gWeights", weights);
         cmd.SetComputeIntParam(BlurComputer, "blurRadius", (int)SmoothRadius);
 
+        int tempID = Shader.PropertyToID("tempTogether");
+        cmd.GetTemporaryRT(tempID,distribution_Together.rt.descriptor);
+        
         //SetTextures
         cmd.SetComputeTextureParam(BlurComputer, handleBlurHor, "source", distribution_Together);
-        cmd.SetComputeTextureParam(BlurComputer, handleBlurHor, "horBlurOutput", distribution_Transit1);
-        cmd.SetComputeTextureParam(BlurComputer, handleBlurVer, "horBlurOutput", distribution_Transit1);
+        cmd.SetComputeTextureParam(BlurComputer, handleBlurHor, "horBlurOutput", tempID);
+        cmd.SetComputeTextureParam(BlurComputer, handleBlurVer, "horBlurOutput", tempID);
         cmd.SetComputeTextureParam(BlurComputer, handleBlurVer, "verBlurOutput", distribution_Together);
-
         //DispatchShaders
         cmd.DispatchCompute(BlurComputer, handleBlurHor, (distribution_Together.referenceSize.x + 1023) / 1024, distribution_Together.referenceSize.y, 1);
         cmd.DispatchCompute(BlurComputer, handleBlurVer, distribution_Together.referenceSize.x, (distribution_Together.referenceSize.y + 1023) / 1024, 1);
+
+        cmd.ReleaseTemporaryRT(tempID);
     }
 
     private void BlurZoomDistribution(CommandBuffer cmd)
@@ -1459,13 +1464,13 @@ class F50_Pass : CustomPass
             distribution_Transit1?.Release();
             distribution_Transit1 = RTHandles.Alloc(
                 BeamCount, 512, dimension: TextureDimension.Tex2D,
-                colorFormat: vectorFormat,
+                colorFormat: uintFormat,
                 name: "distribution_Transit1", enableRandomWrite: true
                 );
             distribution_Transit2?.Release();
             distribution_Transit2 = RTHandles.Alloc(
                 BeamCount, 512, dimension: TextureDimension.Tex2D,
-                colorFormat: vectorFormat,
+                colorFormat: uintFormat,
                 name: "distribution_Transit2", enableRandomWrite: true
                 );
             distribution_Together?.Release();

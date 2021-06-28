@@ -25,6 +25,8 @@ SamplerState _BilinearClamp;
 RWTexture2D<float4> Destination;
 Texture2D<float4> Noise;
 
+Texture2D<uint> Read_UintTex_1;
+Texture2D<uint> Read_UintTex_2;
 //Fields
 float Resolution;
 float CurrentRotAngle;
@@ -303,10 +305,9 @@ float DrawHorisontalGrid(float2 coord, float4 dim) {
 void RemapQuad(uint2 id : SV_DispatchThreadID)
 {
 	float4 s_dim;
-	s_dim = GetDimensionsFrom(Source);
-
-	float4 n_dim;
-	n_dim = GetDimensionsFrom(Noise);
+	//s_dim = GetDimensionsFrom(Read_UintTex_2);
+	Read_UintTex_2.GetDimensions(s_dim.z, s_dim.w);
+	s_dim.xy = 1 / s_dim.zw;
 
 	int res = 64;
 
@@ -355,7 +356,7 @@ void RemapQuad(uint2 id : SV_DispatchThreadID)
 	//Destination[c*d_dim.zw] = SampleLinearY(Source, b_Coords *s_dim.xy, s_dim, fract);
 	//Destination[c*d_dim.zw] = clamp(beam_id,0,512) / float(BeamCount);
 	
-	Destination[c*d_dim.zw] = max(Source[b_Coords], Noise[b_Coords]);
+	Destination[c*d_dim.zw] = float(max(Read_UintTex_1[b_Coords], Read_UintTex_2[b_Coords]))/10000;
 	
 	//Destination[c*d_dim.zw] = fract;
 	//Destination[c*d_dim.zw - dx] = Source[b_Coords];

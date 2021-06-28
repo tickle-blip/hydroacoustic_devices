@@ -1,23 +1,23 @@
 ﻿#pragma kernel MapBeamDistanceData
 #pragma kernel MapBeamNoiseDistanceData
+#pragma kernel FillWaterColumnStrip
+#pragma kernel ComputeDetect
 #pragma kernel FillSideScanStrip
 #pragma kernel FillSnippetsStrip
-#pragma kernel FillWaterColumnStrip
 #pragma kernel ClearBuffer
 #pragma kernel ClearBeamBuffer
-
-#pragma kernel ComputeDetect
 #include "../SonarsDistributionBase.cginc"
 Texture2D<float4> Source;
-RWTexture2D<float4> Destination;
+RWTexture2D<float> Destination;
+RWTexture2D<uint> DestinationUINT;
 
 RWStructuredBuffer<float> DistanceBuffer;
 //uint reflectivity
 
 float4x4 _InvViewMatrix;
-
-Texture2D<float4> Noise1;
-Texture2D<float4> Noise2;
+//
+Texture2D<uint> Read_TexUint_1;
+Texture2D<uint> Read_TexUint_2;
 float Zoom_angle1, Zoom_angle2;
 float Gain, TVG, NoiseWideness, NoisePatternScroll, BlindZoneRadius, HorisontalFOV,VerticalFOV;
 float4 Noise12_Scale_Bias;
@@ -58,8 +58,8 @@ void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
 	float val2 = clamp(DistanceBuffer[uv2.x + uv2.y*dim.x], 0, gain*5);
 	val1 =remap(0,max,0,gain*5, val1);
 	val2 =remap(0,max,0,gain*5,val2);
-	//Destination[uv1] = DistanceBuffer[uv1.x + uv1.y*dim.x];
-	//Destination[uv2] = DistanceBuffer[uv2.x + uv2.y*dim.x];
+	//DestinationUINT[uv1] = DistanceBuffer[uv1.x + uv1.y*dim.x];
+	//DestinationUINT[uv2] = DistanceBuffer[uv2.x + uv2.y*dim.x];
 	Destination[uv1] = val1 +val1 * 0.2* (2 * rand(uv1) - 1);
 	Destination[uv2] = val2 +val1 * 0.2* (2 * rand(uv2) - 1);
 }
@@ -67,7 +67,7 @@ void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
 
 void LinearColorPixels1(float2 uv, float color, float2 dim, float max, float gain)
 {
-	float val;// = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+	float val;// = (DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
 	val = DistanceBuffer[uv.x + uv.y*dim.x];
 	if (val < max) {
 		DistanceBuffer[uv.x + uv.y*dim.x] += color;
@@ -80,8 +80,8 @@ void LinearColorPixels1(float2 uv, float color, float2 dim, float max, float gai
 	float val1 = clamp(DistanceBuffer[uv.x + uv.y*dim.x], 0, gain *100);
 	val1 = remap(0, max, 0, gain * 5, val1);
 	val1 = DistanceBuffer[uv.x + uv.y*dim.x];
-	//Destination[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
-	Destination[uv] = val1 *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));*/
+	//DestinationUINT[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
+	DestinationUINT[uv] = val1 *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));*/
 }
 /*
 void LinearColorPixels(float2 uv, float color, float2 dim, uint m, float gain)
@@ -94,8 +94,8 @@ void LinearColorPixels(float2 uv, float color, float2 dim, uint m, float gain)
 	//
 
 	InterlockedMax(BeamBuffer[uv.x], m);
-	//Destination[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
-	//Destination[uv] = float(BeamBuffer[uv.x + uv.y*dim.x]) / 10000;// *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
+	//DestinationUINT[uv] = val1 +val1 * 0.1* (2 * rand(uv) - 1);
+	//DestinationUINT[uv] = float(BeamBuffer[uv.x + uv.y*dim.x]) / 10000;// *(1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
 }
 */
 void ColorBeam(float2 uv, float color, float2 dim, float max, float gain)
@@ -107,7 +107,7 @@ void ColorBeam(float2 uv, float color, float2 dim, float max, float gain)
 
 	float val1 = DistanceBuffer[uv.x + uv.y*dim.x];
 	Destination[uv] = val1;// +val1 * 0.1* (2 * rand(uv) - 1);
-//	Destination[uv] = val1 * (1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
+//	DestinationUINT[uv] = val1 * (1 + 0.05*(2 * rand(GetNoiseUVrelativeToWorld(uv, WorldPosRot, 1, NoisePatternScroll)) - 1));
 	}
 }
 
@@ -155,7 +155,7 @@ void MapBeamNoiseDistanceData(uint3 groupID : SV_GroupID,
 
 	//BeamTexture. width= num_beams, height = 512
 	float4 d_dim;
-	Destination.GetDimensions(d_dim.z, d_dim.w);
+	DestinationUINT.GetDimensions(d_dim.z, d_dim.w);
 	d_dim.xy = 1 / d_dim.zw;
 
 	float beam_num = id.x;
@@ -230,26 +230,36 @@ void MapBeamNoiseDistanceData(uint3 groupID : SV_GroupID,
 
 		float t, refl,val,val_m;
 
-		val = val_m = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+		//val = val_m = (DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
 		oRefl = noise_Samples[i].y;
 		t = 1 - noise_Samples[i].x;
 		//t = remap(0.5, 1, 0, 1, t);
 		refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, noise_Samples[i].x) / 10, 0, oRefl);
 
 		//if (val_m < refl) {
-		//	Destination[float2(id.x, (noise_Samples[i].x)*d_dim.w)] = (val_m + (Gain*refl));
+		//	DestinationUINT[float2(id.x, (noise_Samples[i].x)*d_dim.w)] = (val_m + (Gain*refl));
 		//}
 		//ColorBeam(float2(id.x, (noise_Samples[i].x)*d_dim.w), Gain*refl, d_dim.zw, refl, Gain);
 
 		
-		oRefl = max(0.1,Gain)*distance_Samples[i].y;
+		oRefl = distance_Samples[i].y;
 		 t = 1-distance_Samples[i].x;
 		//t = remap(0.5, 1, 0, 1, t);
 		 refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
-		 if (val < refl) {	
-			 //Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = (val + (Gain*Gain*refl));
-			 Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = float4((val + (Gain*refl)), id.y*s_dim.y,0,1);
-		 }
+		 float max_refl = uint(refl * 10000);
+		 uint val_to_add = uint((Gain * refl) * 10000);
+
+		 float2 coord = float2(id.x, (distance_Samples[i].x)*d_dim.w);
+
+		 InterlockedAdd(DestinationUINT[coord], val_to_add );
+		 InterlockedMin(DestinationUINT[coord], max_refl);
+		 //InterlockedAdd(DestinationUINT[coord], val_to_add);
+
+
+		/* if (val < refl) {	
+			 //DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = (val + (Gain*Gain*refl));
+			 DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = float4((val + (Gain*refl)), id.y*s_dim.y,0,1);
+		 }*/
 		//ColorBeam(float2(id.x, (distance_Samples[i].x)*d_dim.w), Gain*Gain*refl, d_dim.zw, refl, Gain);
 
 		
@@ -273,7 +283,7 @@ void MapBeamDistanceData(uint3 groupID : SV_GroupID,
 
 	//BeamTexture. width= num_beams, height = 512
 	float4 d_dim;
-	Destination.GetDimensions(d_dim.z, d_dim.w);
+	DestinationUINT.GetDimensions(d_dim.z, d_dim.w);
 	d_dim.xy = 1 / d_dim.zw;
 
 	float beam_num = id.x;
@@ -312,27 +322,81 @@ void MapBeamDistanceData(uint3 groupID : SV_GroupID,
 	for (int i = 0; i < NumOfSamples; i++)
 	{
 		sample_uv = dest_uv + dx * i;
-		distance_Samples[i] = float2(Source[sample_uv].x*(1 + 0.00*(2 * smoothNoise(dest_uv) - 1)), Source[sample_uv].y);
+		distance_Samples[i] = float2(Source[sample_uv].x*(1 + 0.003*(2 * smoothNoise(dest_uv) - 1)), Source[sample_uv].y);
 	}
 	//Fill Beam Texture
-	Gain = 0.25 + Gain*0.75;
+	Gain = 0.5 + Gain*0.5;
+	float max_r=0;
+	float2 coord;
 	for (int i = 0; i < NumOfSamples; i++) {
 		float oRefl = distance_Samples[i].y;
 		float t = 1 - distance_Samples[i].x;
 		//t = remap(0.5, 1, 0, 1, t);
 		float refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
-		float val = Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)];
-		//if (val > refl) return;
-		//Destination[float2(id.x, (distance_Samples[i].x)*BeamCount)] = (val + (Gain*refl))*step(0,t);
-		//val = (Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+
+		float flag = step(max_r, refl);
+		max_r = max(max_r, refl);
+		uint val_to_add = uint((Gain * refl)*10000);
+		uint max_refl = uint(refl * 10000);
+		coord =coord*(1-flag) + (flag)* float2(id.x, (distance_Samples[i].x)*d_dim.w);
+
+		float val = float(DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)])/10000;
+		
 		if (val < refl) {
-			Destination[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = float4((val + (Gain*refl)),id.y*s_dim.y,0,1);
+			//InterlockedAdd(DestinationUINT[coord], val_to_add/ NumOfSamples);
+//			DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = uint(val*10000)+val_to_add;
+			//InterlockedMin(DestinationUINT[coord], max_refl);
+
 		}
+		
+		/*float val = DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)];
+		//if (val > refl) return;
+		//DestinationUINT[float2(id.x, (distance_Samples[i].x)*BeamCount)] = (val + (Gain*refl))*step(0,t);
+		//val = (DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)]);
+		if (val < refl) {
+			DestinationUINT[float2(id.x, (distance_Samples[i].x)*d_dim.w)] = float4((val + (Gain*refl)),id.y*s_dim.y,0,1);
+		}*/
 		//ColorBeam(float2(id.x, (distance_Samples[i].x)*d_dim.w), Gain*refl, d_dim.zw, refl, Gain);
 	}
+	InterlockedAdd(DestinationUINT[coord], uint((Gain*max_r/NumOfSamples/4) * 10000));
+	InterlockedMin(DestinationUINT[coord], uint(10000*max_r));
+
 }
 
 
+int WC_BeamNumber;
+[numthreads(64, 1, 1)]
+void FillWaterColumnStrip(uint3 groupID : SV_GroupID,
+	uint3 groupThreadID : SV_GroupThreadID,
+	uint groupIndex : SV_GroupIndex,
+	uint3 id : SV_DispatchThreadID)
+{
+	float4 s_dim;
+	s_dim = GetDimensionsFrom(Source);
+	float4 st_dim;
+	DestinationUINT.GetDimensions(st_dim.z, st_dim.w);
+	st_dim.xy = 1 / st_dim.zw;
+	//y - radius
+	//x - angle
+
+	float a_data = float(Read_TexUint_1[float2(WC_BeamNumber, id.x)]) / 10000;
+	float b_data = float(Read_TexUint_2[float2(WC_BeamNumber, id.x)]) / 10000;
+
+	float a_data_left = float(Read_TexUint_1[float2(WC_BeamNumber, id.x - 1)]) / 10000;
+	float b_data_left = float(Read_TexUint_2[float2(WC_BeamNumber, id.x - 1)]) / 10000;
+
+
+	float a_data_right = float(Read_TexUint_1[float2(WC_BeamNumber, id.x + 1)]) / 10000;
+	float b_data_right = float(Read_TexUint_2[float2(WC_BeamNumber, id.x + 1)]) / 10000;
+
+	float DistanceStrip = max(a_data, b_data);
+
+	float DistanceStrip_left = max(a_data_left, b_data_left);
+	float DistanceStrip_right = max(a_data_right, b_data_right);
+	float2 uv = id.xy*s_dim.xy;
+	Destination[float2(0, id.x)] = max(DistanceStrip, max(DistanceStrip_left, DistanceStrip_right));
+	Destination[float2(0, id.x)] = DistanceStrip;
+}
 
 float SampleLinearY(Texture2D tex, float2 uv, float4 texelSize,float uv_frac) {
 
@@ -411,12 +475,12 @@ void FillSideScanStrip(uint3 groupID : SV_GroupID,
 	//SS_uv.x =radius;
 	SS_uv.y = 0;
 	//SS_coord = float2(0.5 + uv.y, 0)*st_dim.zw;
-	/*Destination[SS_coord] = max(Destination[SS_coord], DistVal);
-	//Destination[SS_coord] = DistVal;
+	//DestinationUINT[SS_coord] = max(DestinationUINT[SS_coord], DistVal);
+	//DestinationUINT[SS_coord] = DistVal;
 	//Snippets. писать в нулевой столбик или 1?
 
-	Destination_1[SN_coord] = max(Destination_1[SN_coord], DistVal);
-	*/
+	//DestinationUINT_1[SN_coord] = max(DestinationUINT_1[SN_coord], DistVal);
+	
 
 	// *(1 + remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440))*remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440)));
 
@@ -504,12 +568,12 @@ void FillSnippetsStrip(uint3 groupID : SV_GroupID,
 	//SS_uv.x =radius;
 	SS_uv.y = 0;
 	//SS_coord = float2(0.5 + uv.y, 0)*st_dim.zw;
-	/*Destination[SS_coord] = max(Destination[SS_coord], DistVal);
-	//Destination[SS_coord] = DistVal;
+	//DestinationUINT[SS_coord] = max(DestinationUINT[SS_coord], DistVal);
+	//DestinationUINT[SS_coord] = DistVal;
 	//Snippets. писать в нулевой столбик или 1?
 
-	Destination_1[SN_coord] = max(Destination_1[SN_coord], DistVal);
-	*/
+	//DestinationUINT_1[SN_coord] = max(DestinationUINT_1[SN_coord], DistVal);
+	
 
 	// *(1 + remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440))*remap(0, 1, 720, 1440, clamp(d_dim.x, 720, 1440)));
 
@@ -536,29 +600,7 @@ void FillSnippetsStrip(uint3 groupID : SV_GroupID,
 }
 
 
-int WC_BeamNumber;
-[numthreads(64, 1, 1)]
-void FillWaterColumnStrip(uint3 groupID : SV_GroupID,
-	uint3 groupThreadID : SV_GroupThreadID,
-	uint groupIndex : SV_GroupIndex,
-	uint3 id : SV_DispatchThreadID)
-{
-	float4 s_dim;
-	s_dim = GetDimensionsFrom(Source);
-	float4 st_dim;
-	Destination.GetDimensions(st_dim.z, st_dim.w);
-	st_dim.xy = 1 / st_dim.zw;
-	//y - radius
-	//x - angle
 
-	float a_data = Noise1[float2(WC_BeamNumber,id.x)].r;
-	float b_data = Source[float2(WC_BeamNumber,id.x)].r;
-
-	float DistanceStrip = max(a_data, b_data);
-
-	float2 uv = id.xy*s_dim.xy;
-	Destination[float2(0, id.x)] = DistanceStrip;
-}
 
 float MinDetectRange, MaxDetectRange;
 int PingNumber;
@@ -575,7 +617,9 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	// id.x specifies the row in the input texture image
 {
 	float4 s_dim;
-	s_dim = GetDimensionsFrom(Source);
+	Read_TexUint_1.GetDimensions(s_dim.z, s_dim.w);
+	s_dim.xy = 1 / s_dim.zw;
+	//Read_TexUint_1.GetDimensions(a.x, a.y);
 	int raw;
 
 	// find the maximum of this row 
@@ -587,9 +631,9 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	for (raw = min_max_Raw.x; raw < min_max_Raw.y; raw++)
 	{
 
-		uint2 s = (uint)(1023.0 *Source[uint2(id.x, raw)].xy);
-		uint2 n = (uint)(1023.0 *Noise1[uint2(id.x, raw)].xy);
-
+		uint s = (uint)(1023.0 *Read_TexUint_1[uint2(id.x, raw)]);
+		uint n = (uint)(1023.0 *Read_TexUint_2[uint2(id.x, raw)]);
+		//
 		uint2 val = step(s.x, n.x)*n + step(n.x, s.x)*s;
 
 		//uint color = (uint)(1023.0 *Source[uint2(id.x,raw)].x);
@@ -636,15 +680,15 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	float3 viewPos = float3(sin(aHor), sin(aVer), cos(aHor));
 
 	float3 worldPos = mul(_InvViewMatrix, viewPos);
-	/*
-	float beam_pos = (id.x / BeamCount);
-	int j = floor(mod((PingNumber - clamp(beam_pos, 0, BeamCount)), Wedge_MemoryAmount));
-	uv = uv + float2(SWS_x, SWS_y)*d_dim.xy*SwathSpacing*j;
+	
+	//float beam_pos = (id.x / BeamCount);
+	//int j = floor(mod((PingNumber - clamp(beam_pos, 0, BeamCount)), Wedge_MemoryAmount));
+	//uv = uv + float2(SWS_x, SWS_y)*d_dim.xy*SwathSpacing*j;
 	
 
-	float c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
-	c = remap(0, 1, ZeroLevel, UpperLevel, c);
-	*/
+	//float c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
+	//c = remap(0, 1, ZeroLevel, UpperLevel, c);
+	
 	float3 u = float3(viewPos.x, viewPos.y, -viewPos.z)*r;
 	//float4 u = mul(_InvViewMatrix, float4(0, 1
 	u = mul(_InvViewMatrix, float4(u.x,0, u.z,1));
