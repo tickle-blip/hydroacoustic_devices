@@ -90,10 +90,14 @@ class F50_Pass : CustomPass
     public RulerSettings SnippetsRulerSettings = new RulerSettings();
 
     public bool EnableDetect = false;
-
+    public Color DetectColor = Color.green;
     public float MinDetectRange = 0f;
     public float MaxDetectRange = 100f;
     public bool EnableHistory = false;
+    public Vector3[] History_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1,1,0),new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
+
+    public float ZeroGroundLevel = 0f;
+    public float UpperLevel = 3f;
     public float HistoryPingDelay = 1f;
     //public float Wedge_ZeroGroundLevel = 5f;
     //public float Wedge_UpperLevel = 10f;
@@ -103,8 +107,6 @@ class F50_Pass : CustomPass
     //Pseudo3d Settings
     public bool EnablePseudo3D = false;
     public bool ExplorationMode3d = false;
-    public float ZeroGroundLevel = 0f;
-    public float UpperLevel = 3f;
     public int MemoryAmount = 100;
 
     //Image Display settings
@@ -659,8 +661,8 @@ class F50_Pass : CustomPass
             wedge_pingTime = 0;
 
 
-            cmd.SetComputeFloatParam(DistributionComputer, "MinDetectRange", MinDetectRange/MaxScanRange);
-            cmd.SetComputeFloatParam(DistributionComputer, "MaxDetectRange", MaxDetectRange/MaxScanRange);
+            cmd.SetComputeFloatParam(DistributionComputer, "MinDetectRange", MinDetectRange);
+            cmd.SetComputeFloatParam(DistributionComputer, "MaxDetectRange", MaxDetectRange);
 
             cmd.SetComputeFloatParam(DistributionComputer, "OutBeamDensity", outBeamDensity);
             cmd.SetComputeFloatParam(DistributionComputer, "InBeamDensity", inBeamDensity);
@@ -713,11 +715,25 @@ class F50_Pass : CustomPass
        
         if (EnableDetect == true)
         {
+
+            int tempRes = Shader.PropertyToID("tempResult");
+            cmd.GetTemporaryRT(tempRes, Result.rt.descriptor);
+            cmd.CopyTexture(Result, tempRes);
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "Source", tempRes);
+            //CoreUtils.SetRenderTarget(cmd, Result, ClearFlag.Color, clearColor: Color.clear);
             if (EnableHistory == true)
             {
 
-                //cmd.SetComputeFloatParam(InterpolationComputer, "ZeroLevel", Wedge_ZeroGroundLevel);
-                //cmd.SetComputeFloatParam(InterpolationComputer, "UpperLevel", Wedge_UpperLevel);
+                Vector4[] _cols = new Vector4[History_Colors.Length + 1];
+                for (int i = 0; i < History_Colors.Length; i++)
+                {
+                    _cols[i] = History_Colors[i];
+                }
+                cmd.SetComputeVectorArrayParam(InterpolationComputer, "History_Colors", _cols);
+                cmd.SetComputeIntParam(InterpolationComputer, "History_ColorsCount", _cols.Length);
+
+                cmd.SetComputeFloatParam(InterpolationComputer, "ZeroLevel", ZeroGroundLevel);
+                cmd.SetComputeFloatParam(InterpolationComputer, "UpperLevel", UpperLevel);
                 cmd.SetComputeFloatParam(InterpolationComputer, "Range", MaxScanRange);
                 cmd.SetComputeFloatParam(InterpolationComputer, "SWS_x", ShiftSwath.x);
                 cmd.SetComputeFloatParam(InterpolationComputer, "SWS_y", ShiftSwath.y);
@@ -735,13 +751,14 @@ class F50_Pass : CustomPass
             }
             else
             {
+                cmd.SetComputeVectorParam(InterpolationComputer, "DetectColor", DetectColor);
                 cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_RenderDetect, "BeamBuffer", BeamBuffer);
 
                 cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDetect, "Destination", Result);
                 cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDetect, (BeamBuffer.count + 63) / 64,
                        1, 1);
             }
-
+            cmd.ReleaseTemporaryRT(tempRes);
         }
         
         if (AcousticZoom == true)
@@ -925,6 +942,10 @@ class F50_Pass : CustomPass
             var vp = p * v;
             Vector4 surfLevels = new Vector4(ZeroGroundLevel, UpperLevel, 1, 1);
             //cmd.SetGlobalFloatArray("SurfaceLevels", surfLevels);
+
+            
+
+
             cmd.SetGlobalVector("SurfaceLevels", surfLevels);
             dotMaterial.SetBuffer("buffer", pseudo3D_buffer);
 
@@ -937,6 +958,14 @@ class F50_Pass : CustomPass
             dotMaterial.SetMatrix("_CameraInvViewProjMatrix", vp.inverse);
             dotMaterial.SetMatrix("_CameraViewProjMatrix", vp);
             dotMaterial.SetVector("_PrParams", new Vector4(pseudo3D_camera.nearClipPlane, pseudo3D_camera.farClipPlane, 1 / pseudo3D_camera.nearClipPlane, 1 / pseudo3D_camera.farClipPlane));
+            Vector4[] _cols = new Vector4[History_Colors.Length + 1];
+            for (int i = 0; i < History_Colors.Length; i++)
+            {
+                _cols[i] = History_Colors[i];
+            }
+            cmd.SetGlobalVectorArray("History_Colors", _cols);
+            cmd.SetGlobalInt("History_ColorsCount", _cols.Length);
+
             CoreUtils.SetRenderTarget(cmd, pseudo3D_Result, ClearFlag.All, clearColor: Color.black);
             //
             cmd.DrawProcedural(Matrix4x4.identity, dotMaterial, 0, MeshTopology.Points, pseudo3D_buffer.count);
@@ -1118,10 +1147,10 @@ class F50_Pass : CustomPass
         {
             _cols[i + 1] = Colors[i];
         }
-
-        cmd.SetComputeFloatParam(InterpolationComputer, "Gamma", Gamma);
         cmd.SetComputeVectorArrayParam(InterpolationComputer, "_Colors", _cols);
         cmd.SetComputeIntParam(InterpolationComputer, "_ColorsCount", _cols.Length);
+
+        cmd.SetComputeFloatParam(InterpolationComputer, "Gamma", Gamma);
         cmd.SetComputeVectorParam(InterpolationComputer, "_BackgroundColor", BackgroundColor);
         cmd.SetComputeVectorParam(InterpolationComputer, "_GridColor", GridColor);
 
@@ -1444,7 +1473,7 @@ class F50_Pass : CustomPass
             BeamBuffer?.Dispose();
             BeamBuffer = new ComputeBuffer(BeamCount, sizeof(uint) * 2, ComputeBufferType.Default);
             BeamHistoryBuffer?.Dispose();
-            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 2, ComputeBufferType.Default);
+            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 3, ComputeBufferType.Default);
 
         }
 
@@ -1495,7 +1524,7 @@ class F50_Pass : CustomPass
         zoomRect = CalculateZoomCameraRect();
         int z_res = (int)(Mathf.Clamp(_Resolution * ZoomParams.y, 360, 1440));
         Vector2Int _z_Dim = new Vector2Int(Mathf.FloorToInt(z_res * (zoomRect.z)), z_res);
-        if (zoomDim != _z_Dim)
+        if (zoomDim != _z_Dim && AcousticZoom )
         {
             //Check Values
             ZoomParams.x = ZoomParams.x == 0 ? 1 : ZoomParams.x;

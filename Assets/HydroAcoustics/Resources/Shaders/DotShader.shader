@@ -28,6 +28,11 @@
 			float4x4 _CameraInvProjMatrix;
 			float4 _PrParams;
 			float2 SurfaceLevels;
+
+
+			float4 History_Colors[8];
+			int History_ColorsCount;
+
 			float r(float2 co)
 			{
 				float a = 12.9898;
@@ -42,6 +47,20 @@
 				float t = (x - c) / (d - c);
 				return lerp(a, b, t);
 			}
+
+
+
+			float3 LerpHistoryPixColors(float x) {
+
+				float sT = clamp(x, 0, 1) * (float)(History_ColorsCount - 1);
+				float3 oldColor = History_Colors[floor(sT)].rgb;
+				float3 newColor = History_Colors[ceil(sT)].rgb;
+				float newT = sT - floor(sT);
+
+				float3 color = lerp(oldColor, newColor, newT);
+				return color;
+			}
+
 
 			struct v2f 
 			{
@@ -120,6 +139,7 @@
 				float middle=0.5;
 				float factor = i.col;
 				float3 col = lerp(BotCol, MidCol, clamp((factor) / middle, 0, 1))*step(factor,middle) +lerp(MidCol, UpCol, clamp((factor - middle) / middle, 0, 1))*step(middle, factor);
+				col = LerpHistoryPixColors(factor);
 				//col = i.col;
                 // apply fog
                 return float4(col,1);

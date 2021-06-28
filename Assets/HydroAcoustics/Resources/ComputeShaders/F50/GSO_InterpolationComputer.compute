@@ -612,7 +612,7 @@ void Zoom_RenderInCartesian(uint3 groupID : SV_GroupID,
 	*/
 
 
-StructuredBuffer<uint2> BeamBuffer;
+StructuredBuffer<uint3> BeamBuffer;
 [numthreads(16, 16, 1)]
 void FillSideScanScroll(uint3 groupID : SV_GroupID,
 	uint3 groupThreadID : SV_GroupThreadID,
@@ -955,6 +955,10 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 		Destination[uv*d_dim.zw - i * dy] = 1;// BeamBuffer[id.x].y;
 	}
 }*/
+
+
+
+float3 DetectColor;
 [numthreads(64, 1, 1)]
 void RenderDetect(uint3 groupID : SV_GroupID,
 	// 3D ID of thread group; range depends on Dispatch call
@@ -1011,10 +1015,10 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 	//Destination[uv*d_dim.zw] = BeamBuffer[beam_num].y;
 	for (int i = 0; i < 2; i++) {
 
-		Destination[uv*d_dim.zw + i * dx] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
-		Destination[uv*d_dim.zw - i * dx] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
-		Destination[uv*d_dim.zw + i * dy] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
-		Destination[uv*d_dim.zw - i * dy] = float4(0, 1, 0, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw + i * dx] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw - i * dx] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw + i * dy] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
+		Destination[uv*d_dim.zw - i * dy] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
 	}
 
 }
@@ -1030,6 +1034,21 @@ float SWS_x, SWS_y;
 float ZeroLevel, UpperLevel;
 float DetectModeEnabled;
 float Range;
+
+float4 History_Colors[8];
+int History_ColorsCount;
+
+float3 LerpHistoryPixColors(float x) {
+	
+	float sT = clamp(x, 0, 1) * (float)(History_ColorsCount - 1);
+	float3 oldColor = History_Colors[floor(sT)].rgb;
+	float3 newColor = History_Colors[ceil(sT)].rgb;
+	float newT = sT - floor(sT);
+
+	float3 color = lerp(oldColor, newColor, newT);
+	return color;
+}
+
 [numthreads(64, 1, 1)]
 void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 	uint3 groupThreadID : SV_GroupThreadID,
@@ -1082,22 +1101,21 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 	float2 dx = float2(1, 0);
 	float2 dy = float2(0, 1);
 	//
+	float c = float(BeamBuffer[id.x].y)/10000.;
 	
-	/*float c = float(BeamBuffer[id.x].y) / 1023.;
-	c = float(BeamBuffer[id.x].x) / 512. * cos(abs((coordX - 0.5)*HorisontalFOV*0.0174533))*Range;
 	
-	c = remap(0, 1, ZeroLevel, UpperLevel, c);
+	float Ycoord = remap(0, 1, ZeroLevel, UpperLevel, float(BeamBuffer[id.x].z)/10000.);
 
 	float3 BotCol = float3(0.1, 0.8, 0.1);
 	float3 MidCol = float3(1, 1, 0);
 	float3 UpCol = float3(1, 0, 0);
 	// sample the texture
 	float middle = 0.5;
-	float factor = c;
-	float3 col = lerp(BotCol, MidCol, clamp((factor) / middle, 0, 1))*step(factor, middle) + lerp(MidCol, UpCol, clamp((factor - middle) / middle, 0, 1))*step(middle, factor);
-	*/
+	float factor = Ycoord;
+	float3 depthCol = lerp(BotCol, MidCol, clamp((factor) / middle, 0, 1))*step(factor, middle) + lerp(MidCol, UpCol, clamp((factor - middle) / middle, 0, 1))*step(middle, factor);
+	depthCol = LerpHistoryPixColors(factor);
 	
-	float4 col = float4(0, BeamBuffer[beam_num].y, 0, 1);
+	float4 col = float4(c*depthCol+(1- c)*Source[uv*d_dim.zw].rgb,1);
 	
 	for (int i = 1; i < 2; i++) {
 		Destination[uv*d_dim.zw] = col;

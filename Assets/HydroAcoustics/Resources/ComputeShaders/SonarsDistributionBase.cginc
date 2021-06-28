@@ -39,7 +39,7 @@ float fractal(float2 p)
 
 float warpedNoise(float2 p, float4 WorldPos) {
 
-	float2 m = float2((WorldPos.xz / 100));//vec2(sin(iTime*0.5), cos(iTime*0.5));
+	float2 m = float2((WorldPos.yx / 100));//vec2(sin(iTime*0.5), cos(iTime*0.5));
 	float x = fractal(p + m);
 	float y = fractal(p + m.yx + x);
 	float z = fractal(p - m - x + y);
@@ -119,7 +119,7 @@ float2 rotateUV(float2 uv, float degrees)
 
 float2 GetNoiseUVrelativeToWorld(float2 source_uv, float4 worldPosRot, float scale, float patternScroll) {
 
-	float2 uv = (source_uv*scale + worldPosRot.xz / patternScroll);
+	float2 uv = (source_uv*scale + worldPosRot.yz / patternScroll);
 	uv = rotateUV(uv, worldPosRot.w);
 	return uv;
 }

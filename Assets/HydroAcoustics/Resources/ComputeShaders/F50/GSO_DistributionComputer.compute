@@ -39,7 +39,7 @@ float FlexModeEnabled;
 int Wedge_MemoryAmount;
 //Distance, Color, uv.x
 RWStructuredBuffer<uint2> BeamBuffer;
-RWStructuredBuffer<uint2> BeamHistoryBuffer;
+RWStructuredBuffer<uint3> BeamHistoryBuffer;
 RWStructuredBuffer<float3> PosBuffer;
 void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
 {
@@ -203,7 +203,7 @@ void MapBeamNoiseDistanceData(uint3 groupID : SV_GroupID,
 
 		float sc = lerp(1, 2, 1 - (Range - 2) / 300);
 		float2 n1_uv_sample = GetNoiseUVrelativeToWorld(sample_uv*s_dim.xy, WorldPosRot, 1, NoisePatternScroll);
-		float2 n2_uv_sample = GetNoiseUVrelativeToWorld(sample_uv*s_dim.xy, float4(-1, 1, 1, 1)*WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
+		float2 n2_uv_sample = GetNoiseUVrelativeToWorld(sample_uv*s_dim.xy, WorldPosRot + float4(10, 5, 15, 20), 1, NoisePatternScroll);
 
 		float n1_radius, n2_radius;
 
@@ -622,40 +622,8 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	//Read_TexUint_1.GetDimensions(a.x, a.y);
 	int raw;
 
-	// find the maximum of this row 
-	// and store its data in rowMaxData[groupIndex]
-	BeamBuffer[id.x].x = 0;
-	BeamBuffer[id.x].y = 0;
-	float2 dist_uv_y;
-	int2 min_max_Raw = float2(MinDetectRange,MaxDetectRange) * s_dim.w;
-	for (raw = min_max_Raw.x; raw < min_max_Raw.y; raw++)
-	{
 
-		uint s = (uint)(1023.0 *Read_TexUint_1[uint2(id.x, raw)]);
-		uint n = (uint)(1023.0 *Read_TexUint_2[uint2(id.x, raw)]);
-		//
-		uint2 val = step(s.x, n.x)*n + step(n.x, s.x)*s;
-
-		//uint color = (uint)(1023.0 *Source[uint2(id.x,raw)].x);
-		//color = max(color,(uint)(1023.0 *Noise1[uint2(id.x, raw)].x));
-		
-		if (val.x > BeamBuffer[id.x].y)
-		{
-			dist_uv_y = float2(raw / s_dim.w, val.y);
-			BeamBuffer[id.x].x = raw;
-			BeamBuffer[id.x].y = val.x;
-		}
-	}
-	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = BeamBuffer[id.x];
-
-
-
-
-
-	///
-
-
-	float beam_num = id.x ;
+	float beam_num = id.x;
 
 	float leftZone = step(beam_num, BeamCount_left);
 	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
@@ -670,9 +638,45 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	flexX = ((flexX)*B_density + startUV);
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
+	float aHor = (-0.5 + coordX) *HorisontalFOV*0.0174533;
+
+	// find the maximum reflectivity of this Beam 
+	BeamBuffer[id.x].x = 0;
+	BeamBuffer[id.x].y = 0;
+	float2 dist_uv_y;
+	//int2 min_max_Raw = float2(MinDetectRange,MaxDetectRange) * s_dim.w;
+	for (raw = 0; raw < s_dim.w; raw++)
+	{
+
+		uint s = (uint)(Read_TexUint_1[uint2(id.x, raw)]);
+		uint n = (uint)(Read_TexUint_2[uint2(id.x, raw)]);
+		//
+		uint2 val = step(s.x, n.x)*n + step(n.x, s.x)*s;
+
+		float d = cos(aHor)*float(raw*s_dim.y)*Range;
+		val = val * step(d, MaxDetectRange)* step(MinDetectRange, d);
+		//uint color = (uint)(1023.0 *Source[uint2(id.x,raw)].x);
+		//color = max(color,(uint)(1023.0 *Noise1[uint2(id.x, raw)].x));
+		
+		if (val.x > BeamBuffer[id.x].y)
+		{
+			dist_uv_y = float2(raw / s_dim.w, float(val.y)/1023.);
+			BeamBuffer[id.x].x = raw;
+			BeamBuffer[id.x].y = val.x;
+		}
+	}
+	
+
+
+
+
+
+	///
+
+
 	//coordX = id.x / BeamCount;
 	float3 uv = float3(coordX, dist_uv_y.x, dist_uv_y.y); //uv.x - angleHOR, uv.y - distance, uv.z - angleVER
-	float aHor = (-0.5+uv.x) *HorisontalFOV*0.0174533; //in rad
+	 //in rad
 	float aVer = (-0.5+uv.z) *VerticalFOV*0.0174533; //in rad
 	//
 	float r = uv.y*Range;
@@ -690,7 +694,10 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	//c = remap(0, 1, ZeroLevel, UpperLevel, c);
 	
 	float3 u = float3(viewPos.x, viewPos.y, -viewPos.z)*r;
-	//float4 u = mul(_InvViewMatrix, float4(0, 1
 	u = mul(_InvViewMatrix, float4(u.x,0, u.z,1));
+	//u = mul(_InvViewMatrix, float4(10*(2*rand(id.xy)-1), 0, -rand(id.xy)*10, 1));
 	PosBuffer[PingNumber*BeamCount + id.x ] = float3(u.x,u.y,u.z);
+
+
+	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = uint3(BeamBuffer[id.x], uint(10000 * u.y));
 }
