@@ -110,6 +110,7 @@ class F50_Pass : CustomPass
     public int MemoryAmount = 100;
 
     //Image Display settings
+    public bool LookDown = true;
     public float ImageRotation = 0;
     public Vector2Int CentrePercent = Vector2Int.zero; //Change via SetPositionX, SetPositionY
     public int RadiusPercent = 50; //Change via SetRadius
@@ -500,7 +501,7 @@ class F50_Pass : CustomPass
 
 
         float bc = (float)BeamCount;
-
+        cmd.SetComputeFloatParam(InterpolationComputer, "LookDown", LookDown == true ? -1 : 1);
         cmd.SetComputeFloatParam(DistributionComputer, "Resolution", (float)_Resolution);
         cmd.SetComputeFloatParam(DistributionComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
@@ -1835,7 +1836,9 @@ class F50_Pass : CustomPass
                     offset_val = new Vector2(markWidth, 0f);
                     dist = z * minAbs / 2f + offset_val.x;
                     offset_sign = new Vector2(1f, 1f);
-                    text = (Mathf.Round(2f * (a - S1_angle)) / 2f - HorizontalFieldOfView / 2f).ToString() + "°";
+
+                    float b = (LookDown == true)? -1:1;
+                    text = (b*(Mathf.Round(2f * (a - S1_angle)) / 2f - HorizontalFieldOfView / 2f)).ToString() + "°";
                     dCoord = Cent + dir * dist + Vector2.Perpendicular(dir) * offset_val.y;
                     dir = Vector2.zero;
                     //dir.= -dir.x;

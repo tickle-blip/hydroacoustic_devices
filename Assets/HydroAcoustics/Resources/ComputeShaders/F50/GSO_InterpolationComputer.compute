@@ -90,6 +90,7 @@ float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
 float FlexModeEnabled;
 
 //---//
+float LookDown;
 
 //Methods
 float3 LerpColorPixels(float depth) {
@@ -424,11 +425,11 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	float minRes = min(d_dim.z, d_dim.w);
 
 	float2 uv_from_center = float2(id.xy - 0.5 *d_dim.zw);
+	uv_from_center.x *= LookDown;
 	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, d_dim);
 	float radius_uv_y;
 	float pixel_angle;
 	GetAngleCoordAndRadiusUV(uv_from_center / minRes, radius_uv_y, pixel_angle);
-
 
 	//radius_uv_y *= step(radius_uv_y,MaxRadius);
 	pixel_angle -= (Rotation + 90-HorisontalFOV / 2)%360;
@@ -992,7 +993,7 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x / BeamCount);
 	//coordX = id.x / BeamCount;
-	float2 uv = float2(coordX, float(BeamBuffer[id.x].x) / 512.);
+	float2 uv = float2(abs(step(LookDown,0)-coordX), float(BeamBuffer[id.x].x) / 512.);
 	float a = uv.x *HorisontalFOV;
 	a -= -(Rotation - HorisontalFOV / 2) % 360;
 	a = (360 + a) % 360;
@@ -1076,7 +1077,7 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
 	//coordX = id.x / BeamCount;
-	float2 uv = float2(coordX, float(BeamBuffer[id.x].x) / 512.);
+	float2 uv = float2(abs(step(LookDown,0) - coordX), float(BeamBuffer[id.x].x) / 512.);
 	float a = uv.x *HorisontalFOV;
 	a -= -(Rotation  - HorisontalFOV / 2) % 360;
 	a = (360 + a) % 360;
