@@ -106,8 +106,11 @@ class F50_Pass : CustomPass
     public int Wedge_MemoryAmount = 256;
     //Pseudo3d Settings
     public bool EnablePseudo3D = false;
-    public bool ExplorationMode3d = false;
-    public int MemoryAmount = 100;
+
+    public Vector3[] Pseudo3d_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1, 1, 0), new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
+
+//    public bool ExplorationMode3d = false;
+    //public int MemoryAmount = 100;
 
     //Image Display settings
     public bool LookDown = true;
@@ -443,7 +446,8 @@ class F50_Pass : CustomPass
         zoom_text_marks_placeholder = ZoomResultImage.transform.Find("ZoomTextMarksPlaceholder");
         sidescan_ruler_text_marks_placeholder = SideScanResult.transform.Find("SideScanMarksPlaceholder");
         snippets_ruler_text_marks_placeholder = SnippetsResult.transform.Find("SnippetsMarksPlaceholder");
-        watercolumn_text_marks_placeholder = SnippetsResult.transform.Find("WaterColumnMarksPlaceholder");
+        watercolumn_text_marks_placeholder = WaterColumnResult.transform.Find("WaterColumnMarksPlaceholder");
+        watercolumn_ruler_text_marks_placeholder = WaterColumnResult.transform.Find("WaterColumnRulerMarksPlaceholder");
         MarksList = new List<Mark>();
         MarksGoList = new List<Image>();
         Zoom_MarksGoList = new List<Image>();
@@ -959,10 +963,10 @@ class F50_Pass : CustomPass
             dotMaterial.SetMatrix("_CameraInvViewProjMatrix", vp.inverse);
             dotMaterial.SetMatrix("_CameraViewProjMatrix", vp);
             dotMaterial.SetVector("_PrParams", new Vector4(pseudo3D_camera.nearClipPlane, pseudo3D_camera.farClipPlane, 1 / pseudo3D_camera.nearClipPlane, 1 / pseudo3D_camera.farClipPlane));
-            Vector4[] _cols = new Vector4[History_Colors.Length + 1];
-            for (int i = 0; i < History_Colors.Length; i++)
+            Vector4[] _cols = new Vector4[Pseudo3d_Colors.Length + 1];
+            for (int i = 0; i < Pseudo3d_Colors.Length; i++)
             {
-                _cols[i] = History_Colors[i];
+                _cols[i] = Pseudo3d_Colors[i];
             }
             cmd.SetGlobalVectorArray("History_Colors", _cols);
             cmd.SetGlobalInt("History_ColorsCount", _cols.Length);
@@ -2538,7 +2542,7 @@ class F50_Pass : CustomPass
         {
             watercolumn_ruler_text_marks_placeholder = new GameObject("WaterColumnRulerMarksPlaceholder").transform;
             watercolumn_ruler_text_marks_placeholder.SetParent(WaterColumnResult.transform, false);
-            SideScan_RulerText?.Clear();
+            WaterColumn_RulerText?.Clear();
         }
         else
         {
@@ -2581,6 +2585,10 @@ class F50_Pass : CustomPass
         zoom_distribution_Together?.Release();
         Zoom_Result?.Release();
         ClearTextMarks();
+        ClearRulerTextList();
+        ClearSnippetsRulerTextList();
+        ClearTextPool(WaterColumnDisplay);
+        ClearWaterColumnRulerTextList();
     }
 
     private void SerializeMarkSpriteDictionaryIfPossible()
