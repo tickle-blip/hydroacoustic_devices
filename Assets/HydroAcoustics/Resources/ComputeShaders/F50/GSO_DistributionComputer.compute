@@ -332,7 +332,7 @@ void MapBeamDistanceData(uint3 groupID : SV_GroupID,
 		float oRefl = distance_Samples[i].y;
 		float t = 1 - distance_Samples[i].x;
 		//t = remap(0.5, 1, 0, 1, t);
-		float refl = clamp(oRefl*lerp(0., 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
+		float refl = clamp(oRefl*lerp(0, 1, t) + lerp(0, TVG, distance_Samples[i].x) / 10, 0, oRefl);
 
 		float flag = step(max_r, refl);
 		max_r = max(max_r, refl);
@@ -358,7 +358,7 @@ void MapBeamDistanceData(uint3 groupID : SV_GroupID,
 		}*/
 		//ColorBeam(float2(id.x, (distance_Samples[i].x)*d_dim.w), Gain*refl, d_dim.zw, refl, Gain);
 	}
-	InterlockedAdd(DestinationUINT[coord], uint((Gain*max_r/NumOfSamples/4) * 10000));
+	InterlockedAdd(DestinationUINT[coord], uint(10*(Gain*max_r/NumOfSamples/4) * 10000));
 	InterlockedMin(DestinationUINT[coord], uint(10000*max_r));
 
 }

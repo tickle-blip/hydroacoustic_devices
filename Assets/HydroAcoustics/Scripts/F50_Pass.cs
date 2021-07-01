@@ -9,7 +9,11 @@ using System;
 
 using TMPro;
 
-
+enum ScanMode
+{
+    SideScan,
+    ForwardLooking
+}
 class F50_Pass : CustomPass
 {
     #region Fields
@@ -62,6 +66,8 @@ class F50_Pass : CustomPass
     public int SmoothRadius = 1;
     public bool Smoothing = false;
 
+    public ScanMode ScanMode = ScanMode.SideScan;
+
     //FlexMode
     public bool EnableFlexMode = false;
     public float LeftFlexAngle = 0f;
@@ -73,7 +79,7 @@ class F50_Pass : CustomPass
     public int RulerFontSize = 10;
     public int ScrollAmount = 2;
     public float MainWindowToRulerRatio = 0.92f;
-
+        
     //SideScanSettings
     public bool EnableSideScan = false;
     public RulerSettings SideScanRulerSettings = new RulerSettings();
@@ -113,7 +119,7 @@ class F50_Pass : CustomPass
     //public int MemoryAmount = 100;
 
     //Image Display settings
-    public bool LookDown = true;
+    public bool MirrorImage = true;
     public float ImageRotation = 0;
     public Vector2Int CentrePercent = Vector2Int.zero; //Change via SetPositionX, SetPositionY
     public int RadiusPercent = 50; //Change via SetRadius
@@ -155,7 +161,11 @@ class F50_Pass : CustomPass
     public int FontSize = 20;
 
     [Range(3f, 25f)]
-    public float VerticalFieldOfView = 20f;
+    public float SideScan_VerticalFieldOfView = 3f;
+    [Range(3f, 25f)]
+    public float Forward_VericalFieldOfView = 20f;
+
+    private float VerticalFieldOfView = 20f;
     [Range(90f, 130f)]
     public float HorizontalFieldOfView = 115f;
 
@@ -179,8 +189,8 @@ class F50_Pass : CustomPass
     [Range(0.5f, 200f)]
     public float NoisePatternScroll = 30f;
 
-    //public float ScanSpeed = 10f;
-
+    public float CameraLookForwardAngle = 20f;
+    public float CameraLookDownAngle = 90f;
     public Camera bakingCamera = null;
     public Camera pseudo3D_camera = null;
     public Transform shipTransform = null;
@@ -289,6 +299,33 @@ class F50_Pass : CustomPass
     #endregion
 
     public override IEnumerable<Material> RegisterMaterialForInspector() { yield return overrideMaterial; yield return terrainOverrideMaterial; }
+    
+    public void ChangeView(ScanMode mode)
+    {
+        var r = bakingCamera.transform.localEulerAngles;
+
+        switch (mode)
+        {
+            case ScanMode.SideScan:
+                {
+                    MirrorImage = true;
+                    bakingCamera.transform.localEulerAngles = new Vector3(CameraLookDownAngle, r.y , r.z);
+                    VerticalFieldOfView = SideScan_VerticalFieldOfView;
+                    //ImageRotation = 180f;
+                    //CentrePercent.y = 50;
+                    break;
+                }
+            case ScanMode.ForwardLooking:
+                {
+                    MirrorImage = false;
+                    //ImageRotation = 0f;
+                    //CentrePercent.y = 0;
+                    bakingCamera.transform.localEulerAngles = new Vector3(CameraLookForwardAngle, r.y, r.z);
+                    VerticalFieldOfView = Forward_VericalFieldOfView;
+                    break;
+                }
+        }
+    }
 
     public void CreateMark()
     {
@@ -485,10 +522,9 @@ class F50_Pass : CustomPass
         if (camera.camera != Camera_UI)
             return;
 
-        //if (IsNextUpdateAvaliable() == false)
-            //return;
-
-        time += Time.deltaTime;
+        ChangeView(ScanMode);
+        
+            time += Time.deltaTime;
         pingTime += Time.deltaTime;
         wedge_pingTime += Time.deltaTime;
         //Frame rate varies from resolution and range
@@ -505,7 +541,7 @@ class F50_Pass : CustomPass
 
 
         float bc = (float)BeamCount;
-        cmd.SetComputeFloatParam(InterpolationComputer, "LookDown", LookDown == true ? -1 : 1);
+        cmd.SetComputeFloatParam(InterpolationComputer, "LookDown", MirrorImage == true ? -1 : 1);
         cmd.SetComputeFloatParam(DistributionComputer, "Resolution", (float)_Resolution);
         cmd.SetComputeFloatParam(DistributionComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
@@ -1326,7 +1362,6 @@ class F50_Pass : CustomPass
         view.TryGetCullingParameters(out var cullingParams);
         cullingParams.cullingOptions = CullingOptions.ShadowCasters;
         cullingResult = renderContext.Cull(ref cullingParams);
-        //bakingCamera.fieldOfView = Mathf.Lerp(VerticalFieldOfView, 179f, (90f - ScanAreaLookAngle) / 90f);
         bakingCamera.farClipPlane = MaxScanRange;
         bakingCamera.focalLength = 57f;
         float _horisontalFieldOfView = FieldOfViewToSensorSize(HorizontalFieldOfView, bakingCamera.focalLength);
@@ -1841,7 +1876,7 @@ class F50_Pass : CustomPass
                     dist = z * minAbs / 2f + offset_val.x;
                     offset_sign = new Vector2(1f, 1f);
 
-                    float b = (LookDown == true)? -1:1;
+                    float b = (MirrorImage == true)? -1:1;
                     text = (b*(Mathf.Round(2f * (a - S1_angle)) / 2f - HorizontalFieldOfView / 2f)).ToString() + "°";
                     dCoord = Cent + dir * dist + Vector2.Perpendicular(dir) * offset_val.y;
                     dir = Vector2.zero;

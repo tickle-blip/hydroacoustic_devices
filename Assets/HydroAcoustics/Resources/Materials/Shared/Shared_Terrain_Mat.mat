@@ -26,4 +26,4 @@ Material:
     - Steepness: 0.76
     m_Colors:
     - Vector3_AF1A3112: {r: 1, g: 0.2, b: 0.5, a: 0.5}
-    - Vector3_D3BD2E17: {r: 0.5, g: 3, b: 0.5, a: 0.5}
+    - Vector3_D3BD2E17: {r: 0.8, g: 3, b: 0.5, a: 0.5}
