@@ -366,6 +366,7 @@ void RemapQuad(uint2 id : SV_DispatchThreadID)
 
 
 
+float SideScanLook;
 [numthreads(32, 32, 1)]
 void RenderInPolar(uint3 groupID : SV_GroupID,
 	uint3 groupThreadID : SV_GroupThreadID,
@@ -438,14 +439,31 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
 	float rings = (1 - step(Thickness *5 /Scale_factor * Rings, 1 - frac(ringsMain)));
 	
-	//Draw Cross
-	float cross = DrawCross(uv_from_center,d_dim, 1 / Scale_factor);
-	float main = cross ;
+	
+	//Draw SideScan Scale
+	float m = 0.03;
+	float2 lUv = uv_from_center * d_dim.xy +float2(0, 0.49);
+	lUv.y = clamp(lUv.y, 0, 0.48);
+	
+	float2 uvSym = float2(lUv.x, (1 + Thickness)*(lUv.y) % (m));
+	float Line = LineSegment(uvSym, float2(0,m/3.), float2(0, 2.*m/3.));
+	Line = LineSharpen(Line, Thickness, d_dim.zw) ;
+	
+	m = 0.1;
+	lUv = uv_from_center * d_dim.xy +float2(0, 0.5-m/2);
+	lUv.y = clamp(lUv.y, 0, 0.5-m/1.8);
+	uvSym = float2(lUv.x, (1 + Thickness)*(lUv.y) % (m));
+	float sLine = LineSegment(uvSym, float2(-0.02, m/2), float2(0.02, m/2));
+	Line += LineSharpen(sLine, Thickness, d_dim.zw);
+
+	float main = Line;
+	main *= ShowSector;
+
 
 	//Draw Sector Rings and Lines
 	float sector = DrawSector(uv_from_center / minRes, float2(pixel_angle,radius_uv_y), d_dim, ringsMain, 1 / Scale_factor);
 	sector *= ShowSector ;
-
+	//sector = 0;
 	//DrawZoomWindow
 	float2 center = (MouseCoords*d_dim.zw);
 	float2 zoom_wh = ZoomBox / 2 * ZoomParams.x  / 100;
@@ -465,9 +483,10 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	//depth += depth *0.1* (2 * rand(id.xy) - 1)*step(0.01, depth);
 	float4 Scolor = float4(LerpColorPixels(pow(abs(depth),Gamma)),1);
 	//Scolor = lerp(Scolor, float4(0,2,0,1), step(0.1,detect));
-	float4 color = lerp(Scolor, _GridColor, (main+sector)*_GridColor.w);
+	float4 color = lerp(Scolor, _GridColor, lerp(main,sector, (LookDown+1)/2)*_GridColor.w);
 	
 	color = lerp(color, BoxColor, box);
+	//color = main;
 	Destination[id.xy] = pow(abs(color), 2.2);
 	//Destination[id.xy] =float4(FlexModeEnabled, FlexModeEnabled, FlexModeEnabled,1);
 }
@@ -638,7 +657,6 @@ void FillSideScanScroll(uint3 groupID : SV_GroupID,
 	float col = lerp(s, d, flag);
 	Destination[id.xy] = col;
 }
-
 
 [numthreads(32, 32, 1)]
 void RenderSideScanFinal(uint3 groupID : SV_GroupID,

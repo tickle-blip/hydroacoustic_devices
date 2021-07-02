@@ -199,6 +199,7 @@ class F50_Pass : CustomPass
 
     private int currentResolution = 0, currentBeamCount = 0;
     [SerializeField] private List<Mark> MarksList;
+    private List<Text> S_ScanDistanceMarks;
     private List<Text> RingsDistanceMarks, Zoom_RingsDistanceMarks;
     private List<Text> GridDistanceMarks, Zoom_GridDistanceMarks;
     private List<Image> MarksGoList;
@@ -206,7 +207,7 @@ class F50_Pass : CustomPass
     private List<Text> SideScan_RulerText;
     private List<Text> Snippets_RulerText;
     private List<Text> WaterColumn_RulerText;
-
+    private Transform text_marks_sideScan_placeholder;
     private Transform marks_placeholder;
     private Transform zoom_marks_placeholder;
 
@@ -480,6 +481,7 @@ class F50_Pass : CustomPass
         marks_placeholder = ResultSonarImage.transform.Find("MarksPlaceholder");
         zoom_marks_placeholder = ZoomResultImage.transform.Find("ZoomMarksPlaceholder");
         text_marks_placeholder = ResultSonarImage.transform.Find("TextMarksPlaceholder");
+        text_marks_sideScan_placeholder = ResultSonarImage.transform.Find("SideScan_TextMarksPlaceholder");
         zoom_text_marks_placeholder = ZoomResultImage.transform.Find("ZoomTextMarksPlaceholder");
         sidescan_ruler_text_marks_placeholder = SideScanResult.transform.Find("SideScanMarksPlaceholder");
         snippets_ruler_text_marks_placeholder = SnippetsResult.transform.Find("SnippetsMarksPlaceholder");
@@ -492,6 +494,7 @@ class F50_Pass : CustomPass
         Snippets_RulerText = new List<Text>();
         WaterColumn_RulerText = new List<Text>();
         RingsDistanceMarks = new List<Text>();
+        S_ScanDistanceMarks = new List<Text>();
         GridDistanceMarks = new List<Text>();
         Zoom_RingsDistanceMarks = new List<Text>();
         Zoom_GridDistanceMarks = new List<Text>();
@@ -1050,7 +1053,10 @@ class F50_Pass : CustomPass
         }
         DrawMarksOnUI();
         if (PolarView == false)
-            DrawCartesianViewDigits();
+        {
+                DrawCartesianViewDigits();
+                DrawDownLook_ViewDigits();
+        }
         else
             DrawPolarViewDigits();
 
@@ -1681,6 +1687,121 @@ class F50_Pass : CustomPass
         currentBeamCount = BeamCount;
     }
 
+    private void CreateTextS_ScanMarks(int size)
+    {
+        S_ScanDistanceMarks = new List<Text> { };
+        for (int i = 0; i < size; i++)
+        {
+            var go = new GameObject("SS_Mark " + i);
+            var tmp = go.AddComponent<Text>() as Text;
+            S_ScanDistanceMarks.Add(tmp);
+            go.transform.SetParent(text_marks_sideScan_placeholder);
+            go.transform.localScale = Vector3.one;
+            tmp.alignment = TextAnchor.MiddleCenter;
+            go.SetActive(false);
+        }
+    }
+
+    private void ClearS_ScanTextMarks()
+    {
+        if (text_marks_sideScan_placeholder == null)
+        {
+            text_marks_sideScan_placeholder = new GameObject("SideScan_TextMarksPlaceholder").transform;
+            text_marks_sideScan_placeholder.transform.SetParent(ResultSonarImage.rectTransform, false);
+        }
+        else
+        {
+
+            for (int i = text_marks_sideScan_placeholder.childCount - 1; i >= 0; i--)
+                GameObject.DestroyImmediate(text_marks_sideScan_placeholder.GetChild(i).gameObject);
+            S_ScanDistanceMarks?.Clear();
+        }
+
+    }
+
+
+    private void DrawDownLook_ViewDigits()
+    {
+        var resRect = new Vector2(ResultSonarImage.rectTransform.rect.width, ResultSonarImage.rectTransform.rect.height);
+        var rScale = RadiusPercent / 100f * 2;
+
+        float norm = Mathf.Lerp(resRect.y / resRect.x, 1f, 0f);
+        int vFontSize = (int)(FontSize);
+        float minAbs = Mathf.Min(resRect.x, resRect.y);
+        float min = minAbs / ((MaxDisplayRange - MinDisplayRange) / MaxDisplayRange);
+        Vector2 center = new Vector2(resRect.x, resRect.y) * (Vector2)CentrePercent / 100f;
+
+        if (S_ScanDistanceMarks.Count != (4) || S_ScanDistanceMarks == null)
+        {
+            ClearS_ScanTextMarks();
+            CreateTextS_ScanMarks(4);
+        }
+
+        var scanRange = MaxDisplayRange - MinDisplayRange;
+
+        //Проверка на активацию в зависимости от минимального расстояния
+
+        void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
+        {
+            var bounds = new Vector2(mark.preferredWidth + 4f, mark.preferredHeight + 4f) / 2f;
+            mark.text = text;
+            mark.font = CustomFont;
+            mark.fontSize = vFontSize;
+            Debug.Log(bounds);
+            var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
+
+            mark.rectTransform.localPosition = dCoord;
+            mark.color = GridColor;
+            mark.gameObject.SetActive(true);
+        }
+        void Draw(List<Text> gridMarks, Vector2 resWH, Vector2 Cent, float z)
+        {
+
+            if ((ShowGrid&&MirrorImage) == true && PolarView == false)
+            {
+                Vector2 dir, offset_val, dCoord, offset_sign;
+                float dist;
+                string text;
+
+                
+                for (int i = 0; i < S_ScanDistanceMarks.Count; i++)
+                {
+                    float C = S_ScanDistanceMarks.Count;
+
+                    dir = new Vector2(Mathf.Cos((-ImageRotation + 90f) * Mathf.Deg2Rad), Mathf.Sin((-ImageRotation + 90f ) * Mathf.Deg2Rad));
+                    dir.Normalize();
+
+                    offset_val = new Vector2(0f, -60f);// -markWidth);
+                    offset_sign = new Vector2(0f, 0f);
+                    dist = z*minAbs/2f*(1f * (1f - ((i + 1f) / (C + 1f))));
+                    text = (Mathf.Round(2f * (MinDisplayRange + scanRange * i / Rings)) / 2f).ToString();
+
+                    string dim = "m";
+                    float rangeVal = Mathf.Abs((MaxScanRange) * (1f-(i + 1f) / (C + 1f)));
+                    text = Mathf.Round(rangeVal).ToString() + dim;
+                    dCoord = new Vector2(Cent.x, Cent.y) + dir * dist - Vector2.Perpendicular(dir) * offset_val.y;
+                    dir = Vector2.Perpendicular(dir);
+                    sm(gridMarks[i], text, dCoord, dir, offset_sign);
+
+                    
+                }
+            }
+            else
+            {
+                for (int k = 0; k < gridMarks.Count; k++)
+                {
+                    gridMarks[k].gameObject.SetActive(false);
+                }
+            }
+        }
+        Draw(S_ScanDistanceMarks, resRect, center, rScale);
+        
+    }
+
+
+
+
+
     private void ClearTextMarks()
     {
         if (text_marks_placeholder == null)
@@ -1809,7 +1930,7 @@ class F50_Pass : CustomPass
                 }
                 return;
             }
-            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false))
+            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false&& MirrorImage == false))
             {
                 Vector2 dir, offset_val, dCoord, offset_sign;
                 float dist;
