@@ -14,6 +14,13 @@ enum ScanMode
     SideScan,
     ForwardLooking
 }
+
+enum WedgeDisplayMode
+{
+    FullImage,
+    OnlyNoise,
+    None
+}
 class F50_Pass : CustomPass
 {
     #region Fields
@@ -67,6 +74,8 @@ class F50_Pass : CustomPass
     public bool Smoothing = false;
 
     public ScanMode ScanMode = ScanMode.SideScan;
+
+    public WedgeDisplayMode WedgeDisplayMode = WedgeDisplayMode.FullImage;
 
     //FlexMode
     public bool EnableFlexMode = false;
@@ -169,10 +178,10 @@ class F50_Pass : CustomPass
     [Range(90f, 130f)]
     public float HorizontalFieldOfView = 115f;
 
-    [Range(2f, 300f)]
-    public float NoiseTresholdForMaxFOV = 60f;
-    [Range(0f, 300f)]
-    public float NoiseTresholdForMinFOV = 0f;
+    //[Range(2f, 300f)]
+    //public float NoiseTresholdForMaxFOV = 60f;
+    //[Range(0f, 300f)]
+    //public float NoiseTresholdForMinFOV = 0f;
 
     [Range(0.5f, 20f)]
     public float NoiseWideness = 10;
@@ -296,6 +305,7 @@ class F50_Pass : CustomPass
     private Vector4 zoomRect;
     private Vector2Int zoomDim;
 
+    private ScanMode _scMode_flag;
     private int zoom_Resolution;
     #endregion
 
@@ -303,6 +313,9 @@ class F50_Pass : CustomPass
     
     public void ChangeView(ScanMode mode)
     {
+        if (_scMode_flag == mode)
+            return;
+        _scMode_flag = mode;
         var r = bakingCamera.transform.localEulerAngles;
 
         switch (mode)
@@ -312,15 +325,15 @@ class F50_Pass : CustomPass
                     MirrorImage = true;
                     bakingCamera.transform.localEulerAngles = new Vector3(CameraLookDownAngle, r.y , r.z);
                     VerticalFieldOfView = SideScan_VerticalFieldOfView;
-                    //ImageRotation = 180f;
-                    //CentrePercent.y = 50;
+                    ImageRotation = 180f;
+                    CentrePercent.y = 50;
                     break;
                 }
             case ScanMode.ForwardLooking:
                 {
                     MirrorImage = false;
-                    //ImageRotation = 0f;
-                    //CentrePercent.y = 0;
+                    ImageRotation = 0f;
+                    CentrePercent.y = 0;
                     bakingCamera.transform.localEulerAngles = new Vector3(CameraLookForwardAngle, r.y, r.z);
                     VerticalFieldOfView = Forward_VericalFieldOfView;
                     break;
@@ -544,7 +557,8 @@ class F50_Pass : CustomPass
 
 
         float bc = (float)BeamCount;
-        cmd.SetComputeFloatParam(InterpolationComputer, "LookDown", MirrorImage == true ? -1 : 1);
+        cmd.SetComputeFloatParam(InterpolationComputer, "ShowSSGrid", ScanMode == ScanMode.ForwardLooking ? -1f :1f);
+        cmd.SetComputeFloatParam(InterpolationComputer, "MirrorImage", MirrorImage == true ? -1 : 1);
         cmd.SetComputeFloatParam(DistributionComputer, "Resolution", (float)_Resolution);
         cmd.SetComputeFloatParam(DistributionComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
@@ -630,14 +644,6 @@ class F50_Pass : CustomPass
         cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "DefaultBeamDensity", defBeamDensity);
 
-        ////
-
-        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_1", distribution_Transit1);
-        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_2", distribution_Transit2);
-        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Destination", distribution_Together);
-        cmd.DispatchCompute(InterpolationComputer, handleInterpolation_Remap, (distribution_Together.referenceSize.x + 31) / 32,
-               (distribution_Together.referenceSize.y + 31) / 32, 1);
-        
         if (EnableWaterColumn == true)
         {
 
@@ -727,7 +733,34 @@ class F50_Pass : CustomPass
             wedgePingNumber = wedgePingNumber < (Wedge_MemoryAmount - 1) ? wedgePingNumber + 1 : 0;
             
         }
+
+
+
         ///////////----Connect Noise and True distr. to one texture
+
+        switch (WedgeDisplayMode)
+        {
+            case WedgeDisplayMode.FullImage:
+                break;
+            case WedgeDisplayMode.OnlyNoise:{
+                    CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
+                    break;
+                }
+            case WedgeDisplayMode.None:{
+                    CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
+                    CoreUtils.SetRenderTarget(cmd, distribution_Transit2, ClearFlag.Color, clearColor: Color.clear);
+                    break;
+                }
+
+        }
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_1", distribution_Transit1);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Read_UintTex_2", distribution_Transit2);
+        cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_Remap, "Destination", distribution_Together);
+        cmd.DispatchCompute(InterpolationComputer, handleInterpolation_Remap, (distribution_Together.referenceSize.x + 31) / 32,
+               (distribution_Together.referenceSize.y + 31) / 32, 1);
+
+
+
         SetVar_DisplayAndZoomParams(cmd);
         SetVar_SonarParams(cmd);
         SetVar_SonarGridAndColor(cmd);
@@ -1129,8 +1162,8 @@ class F50_Pass : CustomPass
         //cmd.SetComputeFloatParam(DistributionComputer, "Zoom_angle2", zoomRect.width + zoomRect.x);
         cmd.SetComputeFloatParam(DistributionComputer, "HorisontalFOV", HorizontalFieldOfView);
         cmd.SetComputeFloatParam(DistributionComputer, "VerticalFOV", VerticalFieldOfView);
-        cmd.SetComputeFloatParam(DistributionComputer, "TopNoiseTreshold", NoiseTresholdForMaxFOV);
-        cmd.SetComputeFloatParam(DistributionComputer, "BottomNoiseTreshold", NoiseTresholdForMinFOV);
+       // cmd.SetComputeFloatParam(DistributionComputer, "TopNoiseTreshold", NoiseTresholdForMaxFOV);
+       // cmd.SetComputeFloatParam(DistributionComputer, "BottomNoiseTreshold", NoiseTresholdForMinFOV);
     }
 
     private void SetVar_DisplayAndZoomParams(CommandBuffer cmd)
@@ -1173,8 +1206,8 @@ class F50_Pass : CustomPass
     {
 
         cmd.SetComputeIntParam(InterpolationComputer, "GridCount", ShowGrid == true ? 2 : 0);
-        cmd.SetComputeIntParam(InterpolationComputer, "LinesCount", Lines);
-        cmd.SetComputeIntParam(InterpolationComputer, "Rings", Rings);
+        cmd.SetComputeIntParam(InterpolationComputer, "LinesCount", ScanMode == ScanMode.ForwardLooking ? Lines:0);
+        cmd.SetComputeIntParam(InterpolationComputer, "Rings", ScanMode == ScanMode.ForwardLooking ? Rings : 1);
         cmd.SetComputeFloatParam(InterpolationComputer, "Rotation", ImageRotation);
 
         cmd.SetComputeFloatParam(InterpolationComputer, "ApplyZoom", AcousticZoom == true ? 1f : 0);
@@ -1747,7 +1780,6 @@ class F50_Pass : CustomPass
             mark.text = text;
             mark.font = CustomFont;
             mark.fontSize = vFontSize;
-            Debug.Log(bounds);
             var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
 
             mark.rectTransform.localPosition = dCoord;
@@ -1757,7 +1789,7 @@ class F50_Pass : CustomPass
         void Draw(List<Text> gridMarks, Vector2 resWH, Vector2 Cent, float z)
         {
 
-            if ((ShowGrid&&MirrorImage) == true && PolarView == false)
+            if ((ShowGrid==true &&ScanMode == ScanMode.SideScan && PolarView == false))
             {
                 Vector2 dir, offset_val, dCoord, offset_sign;
                 float dist;
@@ -1930,7 +1962,7 @@ class F50_Pass : CustomPass
                 }
                 return;
             }
-            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false&& MirrorImage == false))
+            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false&& ScanMode == ScanMode.ForwardLooking))
             {
                 Vector2 dir, offset_val, dCoord, offset_sign;
                 float dist;

@@ -90,7 +90,7 @@ float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
 float FlexModeEnabled;
 
 //---//
-float LookDown;
+float MirrorImage, ShowSSGrid;
 
 //Methods
 float3 LerpColorPixels(float depth) {
@@ -426,15 +426,18 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	float minRes = min(d_dim.z, d_dim.w);
 
 	float2 uv_from_center = float2(id.xy - 0.5 *d_dim.zw);
-	uv_from_center.x *= LookDown;
+	//uv_from_center.x *= MirrorImage;
 	uv_from_center = Scale_UV(uv_from_center, Offset, Scale_factor, d_dim);
 	float radius_uv_y;
 	float pixel_angle;
 	GetAngleCoordAndRadiusUV(uv_from_center / minRes, radius_uv_y, pixel_angle);
 
 	//radius_uv_y *= step(radius_uv_y,MaxRadius);
-	pixel_angle -= (Rotation + 90-HorisontalFOV / 2)%360;
-	pixel_angle  = (360+pixel_angle)% 360;
+	//pixel_angle = 360 - pixel_angle;
+	pixel_angle -= (Rotation + 90-  HorisontalFOV / 2)%360;
+	
+	pixel_angle  = (360+  pixel_angle )% 360;
+	//pixel_angle *= MirrorImage;
 	//Draw Rings
 	float ringsMain = clamp(radius_uv_y * Rings, 0, Rings);
 	float rings = (1 - step(Thickness *5 /Scale_factor * Rings, 1 - frac(ringsMain)));
@@ -442,17 +445,21 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	
 	//Draw SideScan Scale
 	float m = 0.03;
-	float2 lUv = uv_from_center * d_dim.xy +float2(0, 0.49);
-	lUv.y = clamp(lUv.y, 0, 0.48);
+	float2 lUv = uv_from_center * d_dim.yy+float2(0.5, 0.5);
 	
+	lUv = rotateUV(lUv,180+ Rotation);
+	lUv.y = clamp(lUv.y, 0, 0.5-m/2);
+	lUv.x -= 0.5;
 	float2 uvSym = float2(lUv.x, (1 + Thickness)*(lUv.y) % (m));
 	float Line = LineSegment(uvSym, float2(0,m/3.), float2(0, 2.*m/3.));
 	Line = LineSharpen(Line, Thickness, d_dim.zw) ;
 	
 	m = 0.1;
-	lUv = uv_from_center * d_dim.xy +float2(0, 0.5-m/2);
-	lUv.y = clamp(lUv.y, 0, 0.5-m/1.8);
-	uvSym = float2(lUv.x, (1 + Thickness)*(lUv.y) % (m));
+	//lUv = uv_from_center * d_dim.xy +float2(0, 0.5-m/2);
+	//lUv.y = clamp(lUv.y, 0, 0.5-m/1.8);
+	//lUv.y = clamp(lUv.y, 0, 0.5 - m / 2);
+	//lUv.x -= 0.5;
+	uvSym = float2(lUv.x, (1 + Thickness)*(lUv.y-m/2) % (m));
 	float sLine = LineSegment(uvSym, float2(-0.02, m/2), float2(0.02, m/2));
 	Line += LineSharpen(sLine, Thickness, d_dim.zw);
 
@@ -473,21 +480,24 @@ void RenderInCartesian(uint3 groupID : SV_GroupID,
 	//pixel_angle = x;	
 	float remapped_radius = remap(MinRadius, MaxRadius, 0, 1, radius_uv_y);
 	//Scale_UV(id.xy - center, Offset, 1, d_dim)
-	float depth = Source[float2(pixel_angle / HorisontalFOV , remapped_radius)*s_dim.zw].r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
+
+	float2 uv_sample = float2((1 - MirrorImage) / 2 + MirrorImage * (pixel_angle) / HorisontalFOV, remapped_radius);
+	float depth = Source[uv_sample*s_dim.zw].r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
 	//depth = Source.SampleLevel(_BilinearClamp,float2(pixel_angle / HorisontalFOV, radius_uv_y), 0)*step(radius_uv_y, MaxRadius)*step(0,pixel_angle / HorisontalFOV);
 	
-	depth = SampleBilinear(Source, float2(pixel_angle / HorisontalFOV, remapped_radius), s_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y);
+	depth = SampleBilinear(Source, uv_sample, s_dim).r*step(radius_uv_y, 1)*step(MinimumRange, radius_uv_y)*step(0, (1-MirrorImage)/2+MirrorImage*pixel_angle / HorisontalFOV);;
 	//float detect = Noise[float2(pixel_angle / HorisontalFOV, remapped_radius)*float2(BeamCount, 512)].r * 10 *step(0.5, DetectModeEnabled);
 	//pixel_angle = remap(0, 1, Zoom_angle1, Zoom_angle2, pixel_angle / 130);
 	//depth = pixel_angle;
 	//depth += depth *0.1* (2 * rand(id.xy) - 1)*step(0.01, depth);
 	float4 Scolor = float4(LerpColorPixels(pow(abs(depth),Gamma)),1);
 	//Scolor = lerp(Scolor, float4(0,2,0,1), step(0.1,detect));
-	float4 color = lerp(Scolor, _GridColor, lerp(main,sector, (LookDown+1)/2)*_GridColor.w);
+	float4 color = lerp(Scolor, _GridColor, main*step(0,ShowSSGrid) + sector *_GridColor.w);
 	
 	color = lerp(color, BoxColor, box);
 	//color = main;
 	Destination[id.xy] = pow(abs(color), 2.2);
+	//Destination[id.xy] = uv_sample.x;
 	//Destination[id.xy] =float4(FlexModeEnabled, FlexModeEnabled, FlexModeEnabled,1);
 }
 
@@ -1011,15 +1021,15 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x / BeamCount);
 	//coordX = id.x / BeamCount;
-	float2 uv = float2(abs(step(LookDown,0)-coordX), float(BeamBuffer[id.x].x) / 512.);
-	float a = uv.x *HorisontalFOV;
+	float2 uv = float2(abs(step(MirrorImage,0)-coordX), float(BeamBuffer[id.x].x) / 512.);
+	float a = clamp(uv.x,0,1) *HorisontalFOV;
 	a -= -(Rotation - HorisontalFOV / 2) % 360;
 	a = (360 + a) % 360;
 	//a = 90;
 	a *= 0.0174533;
 
 
-	float r = uv.y / 2;
+	float r = uv.y / 2.;
 	uv = float2(r*sin(a), r*cos(a));
 	uv *= d_dim.xy;
 	float minRes = min(d_dim.z, d_dim.w);
@@ -1031,9 +1041,9 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 	//Destination[uv*d_dim.ww] = 1;
 	float2 dx = float2(1, 0);
 	float2 dy = float2(0, 1);
-	//Destination[uv*d_dim.zw] = BeamBuffer[beam_num].y;
 	for (int i = 0; i < 2; i++) {
 
+		Destination[uv*d_dim.zw] = float4(DetectColor, 1);
 		Destination[uv*d_dim.zw + i * dx] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
 		Destination[uv*d_dim.zw - i * dx] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
 		Destination[uv*d_dim.zw + i * dy] = float4(DetectColor, 1);// BeamBuffer[id.x].y;
@@ -1095,8 +1105,8 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
 	//coordX = id.x / BeamCount;
-	float2 uv = float2(abs(step(LookDown,0) - coordX), float(BeamBuffer[id.x].x) / 512.);
-	float a = uv.x *HorisontalFOV;
+	float2 uv = float2(abs(step(MirrorImage,0) - coordX), float(BeamBuffer[id.x].x) / 512.);
+	float a = clamp(uv.x,0,1) *HorisontalFOV;
 	a -= -(Rotation  - HorisontalFOV / 2) % 360;
 	a = (360 + a) % 360;
 	//a = 90;
