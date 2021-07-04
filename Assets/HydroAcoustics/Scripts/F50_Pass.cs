@@ -826,15 +826,13 @@ class F50_Pass : CustomPass
                 cmd.DispatchCompute(InterpolationComputer, handleInterpolation_DrawWedgeHistory, (BeamHistoryBuffer.count + 63) / 64,
                        1, 1);
             }
-            else
-            {
-                cmd.SetComputeVectorParam(InterpolationComputer, "DetectColor", DetectColor);
-                cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_RenderDetect, "BeamBuffer", BeamBuffer);
+            cmd.SetComputeVectorParam(InterpolationComputer, "DetectColor", DetectColor);
+            cmd.SetComputeBufferParam(InterpolationComputer, handleInterpolation_RenderDetect, "BeamBuffer", BeamBuffer);
 
-                cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDetect, "Destination", Result);
-                cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDetect, (BeamBuffer.count + 63) / 64,
-                       1, 1);
-            }
+            cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDetect, "Destination", Result);
+            cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDetect, (BeamBuffer.count + 63) / 64,
+                    1, 1);
+          
             cmd.ReleaseTemporaryRT(tempRes);
         }
         
