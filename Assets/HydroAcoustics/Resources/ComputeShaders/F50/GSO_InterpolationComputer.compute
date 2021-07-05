@@ -357,7 +357,7 @@ void RemapQuad(uint2 id : SV_DispatchThreadID)
 	//Destination[c*d_dim.zw] = SampleLinearY(Source, b_Coords *s_dim.xy, s_dim, fract);
 	//Destination[c*d_dim.zw] = clamp(beam_id,0,512) / float(BeamCount);
 	
-	Destination[c*d_dim.zw] = float(max(Read_UintTex_1[b_Coords], Read_UintTex_2[b_Coords]))/10000;
+	Destination[id.xy] = float(max(Read_UintTex_1[b_Coords], Read_UintTex_2[b_Coords]))/10000;
 	
 	//Destination[c*d_dim.zw] = fract;
 	//Destination[c*d_dim.zw - dx] = Source[b_Coords];

@@ -782,7 +782,7 @@ class F50_Pass : CustomPass
         }
         else
         {
-
+            //
             //cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Noise", distribution_Transit2);
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Source", distribution_Together);
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderInCartesian, "Destination", Result);
@@ -1096,12 +1096,12 @@ class F50_Pass : CustomPass
             Pseudo3DResult.gameObject.SetActive(EnablePseudo3D);
             Pseudo3DResult.texture = pseudo3D_Result;
         }
-      /*  if (distance_img != null)
-            distance_img.texture = sidescan_result;
-        if (Test_img3 != null)
-            Test_img3.texture = distribution_Transit1;
-        if (Test_img1 != null && zoom_distribution_Together != null)
-            Test_img1.texture = snippets_result;*/
+        /*if (distance_img != null)
+            distance_img.texture = distribution_Together;
+          if (Test_img3 != null)
+              Test_img3.texture = distribution_Transit1;
+          if (Test_img1 != null && zoom_distribution_Together != null)
+              Test_img1.texture = snippets_result;*/
     }
 
     private void BlurDistribution(CommandBuffer cmd)
@@ -1554,6 +1554,13 @@ class F50_Pass : CustomPass
 
         }
 
+        if (currentResolution != _Resolution || DistTexHeight != distanceTexture.height)
+        {
+            if (distanceTexture != null) distanceTexture.Release();
+            distanceTexture = new RenderTexture(_Resolution * 4, DistTexHeight, 24, vector4Format);
+            distanceTexture.filterMode = FilterMode.Point;
+            distanceTexture.name = "DistanceTexture";
+        }
         if (currentResolution != _Resolution || currentBeamCount != BeamCount)
         {
 
@@ -1561,11 +1568,6 @@ class F50_Pass : CustomPass
 
             distanceBuffer?.Dispose();
             distanceBuffer = new ComputeBuffer(BeamCount * 512, sizeof(float), ComputeBufferType.Default);
-
-            if (distanceTexture != null) distanceTexture.Release();
-            distanceTexture = new RenderTexture(_Resolution * 4, DistTexHeight, 16, vector4Format);
-            distanceTexture.filterMode = FilterMode.Point;
-            distanceTexture.name = "DistanceTexture";
 
             distribution_Transit1?.Release();
             distribution_Transit1 = RTHandles.Alloc(
