@@ -26,7 +26,7 @@ class F50_Pass : CustomPass
     #region Fields
     //public RawImage Test_img3;
     //public RawImage Test_img1;
-    //public RawImage distance_img;
+    public RawImage distance_img;
     public Vector2Int ResultDimensions = new Vector2Int(1920, 1080);
     public RawImage ResultSonarImage;
     public RawImage ZoomResultImage;
@@ -575,30 +575,35 @@ class F50_Pass : CustomPass
 
         LeftFlexAngle = Mathf.Clamp(LeftFlexAngle, 10f, Mathf.Max(RightFlexAngle-1f,0f));
         RightFlexAngle = Mathf.Clamp(RightFlexAngle, Mathf.Max(LeftFlexAngle + 1f, 0f), HorizontalFieldOfView-10f);
-        int OutBeamRange = (int)((1f - BeamDensity) * BeamCount * (1f - (RightFlexAngle - LeftFlexAngle) / HorizontalFieldOfView));
-        int InBeamRange = BeamCount - OutBeamRange;
+
+        int InBeamRange = (int)((BeamDensity) * BeamCount);
+        int OutBeamRange = BeamCount - InBeamRange;
 
         float leftUV = LeftFlexAngle / HorizontalFieldOfView;
         float rightUV = RightFlexAngle / HorizontalFieldOfView;
 
-        float outBeamDensity = (1f - (rightUV - leftUV)) * distanceTexture.width / (float)OutBeamRange;
-        float inBeamDensity = (rightUV - leftUV) * distanceTexture.width / (float)InBeamRange;
-        float defBeamDensity = (float)(distanceTexture.width / (float)BeamCount);
+        float leftcount = Mathf.Round((OutBeamRange * (leftUV) / (1 + leftUV - rightUV)));
+        float rightcount = OutBeamRange - leftcount;
 
-        float leftcount = (OutBeamRange * (leftUV) / (1 + leftUV - rightUV));
-        //Debug.Log(BeamCount - (leftcount + InBeamRange));
+        Debug.Log(leftcount);
+        Debug.Log(InBeamRange);
+        Debug.Log(rightcount);
+
+        Debug.Log(leftcount + InBeamRange + rightcount);
+        float leftBeamDensity = (leftUV) * distanceTexture.width / (float)leftcount;
+        float rightBeamDensity = (1f - (rightUV)) * distanceTexture.width / (float)rightcount;
+        float inBeamDensity = (rightUV - leftUV) * distanceTexture.width / (float)InBeamRange;
+
 
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_left", leftcount);
         cmd.SetComputeFloatParam(DistributionComputer, "BeamCount_mid", InBeamRange);
 
         cmd.SetComputeFloatParam(DistributionComputer, "LeftUVBorder", leftUV);
         cmd.SetComputeFloatParam(DistributionComputer, "RightUVBorder", rightUV);
-        cmd.SetComputeFloatParam(DistributionComputer, "OutBeamDensity", outBeamDensity);
+        cmd.SetComputeFloatParam(DistributionComputer, "LeftBeamDensity", leftBeamDensity);
+        cmd.SetComputeFloatParam(DistributionComputer, "RightBeamDensity", rightBeamDensity);
         cmd.SetComputeFloatParam(DistributionComputer, "InBeamDensity", inBeamDensity);
-        cmd.SetComputeFloatParam(DistributionComputer, "DefaultBeamDensity", defBeamDensity);
 
-        cmd.SetComputeFloatParam(DistributionComputer, "LeftNumBorder", outBeamDensity);
-        cmd.SetComputeFloatParam(DistributionComputer, "RightNumBorder", inBeamDensity);
         //////END FILL////////////
         
         //ClearDistanceBuffer
@@ -629,20 +634,20 @@ class F50_Pass : CustomPass
 
         ////Interpolate Beam data
 
-        outBeamDensity = (1f - (rightUV - leftUV)) * distribution_Together.referenceSize.x / (float)OutBeamRange;
+        leftBeamDensity = (leftUV) * distribution_Together.referenceSize.x / (float)leftcount;
+        rightBeamDensity = (1f - (rightUV)) * distribution_Together.referenceSize.x / (float)rightcount;
         inBeamDensity = (rightUV - leftUV) * distribution_Together.referenceSize.x / (float)InBeamRange;
 
-        defBeamDensity = (float)(distribution_Together.referenceSize.x / (float)BeamCount);
-        
         cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount", bc);
-        cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_left", leftcount);
-        cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_mid", InBeamRange);
+        cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_left", Mathf.Round(leftcount));
+        cmd.SetComputeFloatParam(InterpolationComputer, "BeamCount_mid", Mathf.Round(InBeamRange));
 
         cmd.SetComputeFloatParam(InterpolationComputer, "LeftUVBorder", leftUV);
         cmd.SetComputeFloatParam(InterpolationComputer, "RightUVBorder", rightUV);
-        cmd.SetComputeFloatParam(InterpolationComputer, "OutBeamDensity", outBeamDensity);
+        
+        cmd.SetComputeFloatParam(InterpolationComputer, "LeftBeamDensity", leftBeamDensity);
+        cmd.SetComputeFloatParam(InterpolationComputer, "RightBeamDensity", rightBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
-        cmd.SetComputeFloatParam(InterpolationComputer, "DefaultBeamDensity", defBeamDensity);
 
         if (EnableWaterColumn == true)
         {
@@ -714,9 +719,9 @@ class F50_Pass : CustomPass
             cmd.SetComputeFloatParam(DistributionComputer, "MinDetectRange", MinDetectRange);
             cmd.SetComputeFloatParam(DistributionComputer, "MaxDetectRange", MaxDetectRange);
 
-            cmd.SetComputeFloatParam(DistributionComputer, "OutBeamDensity", outBeamDensity);
+            cmd.SetComputeFloatParam(DistributionComputer, "LeftBeamDensity", leftBeamDensity);
+            cmd.SetComputeFloatParam(DistributionComputer, "RightBeamDensity", rightBeamDensity);
             cmd.SetComputeFloatParam(DistributionComputer, "InBeamDensity", inBeamDensity);
-            cmd.SetComputeFloatParam(DistributionComputer, "DefaultBeamDensity", defBeamDensity);
 
             cmd.SetComputeIntParam(DistributionComputer, "PingNumber", wedgePingNumber);
             cmd.SetComputeMatrixParam(DistributionComputer, "_InvViewMatrix", v);
@@ -798,6 +803,14 @@ class F50_Pass : CustomPass
             cmd.CopyTexture(Result, tempRes);
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_DrawWedgeHistory, "Source", tempRes);
             //CoreUtils.SetRenderTarget(cmd, Result, ClearFlag.Color, clearColor: Color.clear);
+
+            leftBeamDensity = (leftUV) * (float)ResultDimensions.x / (float)leftcount;
+            rightBeamDensity = (1f - (rightUV)) * (float)ResultDimensions.x / (float)rightcount;
+            inBeamDensity = (rightUV - leftUV) * (float)ResultDimensions.x / (float)InBeamRange;
+
+            cmd.SetComputeFloatParam(InterpolationComputer, "LeftBeamDensity", leftBeamDensity);
+            cmd.SetComputeFloatParam(InterpolationComputer, "RightBeamDensity", rightBeamDensity);
+            cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
             if (EnableHistory == true)
             {
 
@@ -806,6 +819,7 @@ class F50_Pass : CustomPass
                 {
                     _cols[i] = History_Colors[i];
                 }
+
                 cmd.SetComputeVectorArrayParam(InterpolationComputer, "History_Colors", _cols);
                 cmd.SetComputeIntParam(InterpolationComputer, "History_ColorsCount", _cols.Length);
 
@@ -1096,9 +1110,9 @@ class F50_Pass : CustomPass
             Pseudo3DResult.gameObject.SetActive(EnablePseudo3D);
             Pseudo3DResult.texture = pseudo3D_Result;
         }
-        /*if (distance_img != null)
-            distance_img.texture = distribution_Together;
-          if (Test_img3 != null)
+        if (distance_img != null)
+            distance_img.texture = distribution_Transit1;
+        /*  if (Test_img3 != null)
               Test_img3.texture = distribution_Transit1;
           if (Test_img1 != null && zoom_distribution_Together != null)
               Test_img1.texture = snippets_result;*/
@@ -1550,7 +1564,7 @@ class F50_Pass : CustomPass
             BeamBuffer?.Dispose();
             BeamBuffer = new ComputeBuffer(BeamCount, sizeof(uint) * 2, ComputeBufferType.Default);
             BeamHistoryBuffer?.Dispose();
-            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 3, ComputeBufferType.Default);
+            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 4, ComputeBufferType.Default);
 
         }
 

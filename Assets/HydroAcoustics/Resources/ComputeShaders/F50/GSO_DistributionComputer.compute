@@ -31,7 +31,7 @@ float Resolution;
 float BeamCount;
 float BeamCount_left, BeamCount_mid;
 float LeftUVBorder, RightUVBorder;
-float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
+float LeftBeamDensity,RightBeamDensity, InBeamDensity;
 float FlexModeEnabled;
 
 
@@ -39,7 +39,7 @@ float FlexModeEnabled;
 int Wedge_MemoryAmount;
 //Distance, Color, uv.x
 RWStructuredBuffer<uint2> BeamBuffer;
-RWStructuredBuffer<uint3> BeamHistoryBuffer;
+RWStructuredBuffer<uint4> BeamHistoryBuffer;
 RWStructuredBuffer<float3> PosBuffer;
 void BilinearColorPixels(float2 uv, float color,float2 dim,float max,float gain)
 {
@@ -164,8 +164,8 @@ void MapBeamNoiseDistanceData(uint3 groupID : SV_GroupID,
 	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
 	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
 
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+	float B_density = rightZone*RightBeamDensity + leftZone*LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 	startUV = FlexModeEnabled * startUV;
@@ -286,26 +286,26 @@ void MapBeamDistanceData(uint3 groupID : SV_GroupID,
 	DestinationUINT.GetDimensions(d_dim.z, d_dim.w);
 	d_dim.xy = 1 / d_dim.zw;
 
-	float beam_num = id.x;
+	float beam_num = id.x+1;
 
 	float leftZone = step(beam_num, BeamCount_left);
-	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
-	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+	float midZone = step(BeamCount_left, beam_num-1)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num-1);
 
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+	float B_density = rightZone*RightBeamDensity + leftZone*LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 	startUV = FlexModeEnabled * startUV;
 
-	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)))*s_dim.x;
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid))-1)*s_dim.x;
 	flexX = ((flexX)*B_density + startUV);
 
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x*d_dim.x);
 	//coordX = id.x*d_dim.x;
 	//TOUGH Correction
 	coordX = PaniniYfromX(coordX, HorisontalFOV);
-
+	
 	coordX *= s_dim.z;
 	//coordX -= 0.5;
 	int NumOfSamples = int(s_dim.z / d_dim.z);
@@ -623,21 +623,24 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	int raw;
 
 
-	float beam_num = id.x;
+
+	float beam_num = id.x + 1;
 
 	float leftZone = step(beam_num, BeamCount_left);
-	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float midZone = step(BeamCount_left, beam_num - 1)*step(beam_num , (BeamCount_left + BeamCount_mid));
 	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
 
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+	float B_density = rightZone*RightBeamDensity + leftZone*LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 
-	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / BeamCount;
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)) - 1)/Resolution;
 	flexX = ((flexX)*B_density + startUV);
 
+
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
+
 	float aHor = (-0.5 + coordX) *HorisontalFOV*0.0174533;
 
 	// find the maximum reflectivity of this Beam 
@@ -699,5 +702,5 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	PosBuffer[PingNumber*BeamCount + id.x ] = float3(u.x,u.y,u.z);
 
 
-	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = uint3(BeamBuffer[id.x], uint(10000 * u.y));
+	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = uint4(BeamBuffer[id.x].x, BeamBuffer[id.x].y, uint(10000 * u.y), uint(FlexModeEnabled));
 }

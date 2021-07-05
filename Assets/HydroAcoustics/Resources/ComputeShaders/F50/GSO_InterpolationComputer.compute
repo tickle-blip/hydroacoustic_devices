@@ -86,7 +86,8 @@ float LowerFactor, MiddleFactor;
 float BeamCount;
 float BeamCount_left, BeamCount_mid;
 float LeftUVBorder, RightUVBorder;
-float OutBeamDensity, InBeamDensity, DefaultBeamDensity;
+
+float LeftBeamDensity, RightBeamDensity, InBeamDensity;
 float FlexModeEnabled;
 
 //---//
@@ -325,17 +326,19 @@ void RemapQuad(uint2 id : SV_DispatchThreadID)
 	float midZone = step(LeftUVBorder, uv.x)*step(uv.x, RightUVBorder);
 	float rightZone = step(RightUVBorder, uv.x);
 
-	float flexX = leftZone * (uv.x)/ LeftUVBorder + midZone * (uv.x - LeftUVBorder)/(RightUVBorder- LeftUVBorder) + rightZone * (uv.x - RightUVBorder)/(1-RightUVBorder);
-	//float flexX = leftZone * (uv.x) + midZone * (uv.x - LeftUVBorder) + rightZone * (uv.x - RightUVBorder);
+	float flexX = leftZone * (uv.x)/ (LeftUVBorder) + midZone * (uv.x - LeftUVBorder)/(RightUVBorder- LeftUVBorder) + rightZone * (uv.x - RightUVBorder)/(1-RightUVBorder);
+	
+	// flexX = leftZone * (uv.x) + midZone * (uv.x - LeftUVBorder) + rightZone * (uv.x - RightUVBorder);
 	float texCoordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*uv.x);
 	texCoordX *= d_dim.z;
-	float beam_id = flexX * (leftZone*BeamCount_left + midZone * BeamCount_mid + rightZone * (BeamCount - BeamCount_left - BeamCount_mid));
-	beam_id = beam_id * FlexModeEnabled + (1 - FlexModeEnabled)*uv.x*BeamCount;
+	float beam_id = flexX * (leftZone*(BeamCount_left) + midZone * BeamCount_mid + rightZone * (BeamCount - BeamCount_left - BeamCount_mid));
+	beam_id = beam_id * FlexModeEnabled+(1 - FlexModeEnabled)*uv.x*BeamCount;
 	//texCoordX += 0.5;
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+
+	float B_density = rightZone * RightBeamDensity + leftZone * LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
 	float InZoneIndex = floor(texCoordX / (B_density));
-	float startIndex =leftZone*1+midZone * (BeamCount_left) + rightZone * (BeamCount_mid + BeamCount_left); //+0.5
+	float startIndex = leftZone*0 + midZone * (BeamCount_left-1)+rightZone * (BeamCount_mid + BeamCount_left);
 	startIndex = FlexModeEnabled * (startIndex);
 	float TrueBeamIndex = startIndex + beam_id;
 	//TrueBeamIndex = uv.x*BeamCount;
@@ -642,7 +645,7 @@ void Zoom_RenderInCartesian(uint3 groupID : SV_GroupID,
 	*/
 
 
-StructuredBuffer<uint3> BeamBuffer;
+StructuredBuffer<uint4> BeamBuffer;
 [numthreads(16, 16, 1)]
 void FillSideScanScroll(uint3 groupID : SV_GroupID,
 	uint3 groupThreadID : SV_GroupThreadID,
@@ -1005,21 +1008,23 @@ void RenderDetect(uint3 groupID : SV_GroupID,
 
 	d_dim.xy = 1 / d_dim.zw;
 
-	float beam_num = id.x % BeamCount;
+	float beam_num =(1+ id.x) ;
+
 
 	float leftZone = step(beam_num, BeamCount_left);
-	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
-	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+	float midZone = step(BeamCount_left, beam_num - 1)*step(beam_num + 1, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num -1);
 
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+	float B_density = rightZone * RightBeamDensity + leftZone * LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+	startUV = FlexModeEnabled * startUV;
 
-	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / Resolution;
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid))-0.5)/1920.;
 	flexX = ((flexX)*B_density + startUV);
-
 	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*id.x / BeamCount);
+
 	//coordX = id.x / BeamCount;
 	float2 uv = float2(abs(step(MirrorImage,0)-coordX), float(BeamBuffer[id.x].x) / 512.);
 	float a = clamp(uv.x,0,1) *HorisontalFOV;
@@ -1089,22 +1094,25 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 
 	d_dim.xy = 1 / d_dim.zw;
 
-	float beam_num = id.x % BeamCount;
+	float FlexBeam = BeamBuffer[id.x].w;
+	//FlexBeam = 0;
+	float beam_num = id.x % BeamCount+1;
+
+
 
 	float leftZone = step(beam_num, BeamCount_left);
-	float midZone = step(BeamCount_left, beam_num)*step(beam_num, (BeamCount_left + BeamCount_mid));
-	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+	float midZone = step(BeamCount_left, beam_num - 1)*step(beam_num + 1, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num - 1);
 
-	float B_density = (rightZone + leftZone)*OutBeamDensity + midZone * InBeamDensity;
-	B_density = FlexModeEnabled * B_density + (1 - FlexModeEnabled)*(DefaultBeamDensity);
+	float B_density = rightZone * RightBeamDensity + leftZone * LeftBeamDensity + midZone * InBeamDensity;
 
 	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
 
-	float flexX = (leftZone * (beam_num - 0.5) + midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid - 0.5))) / Resolution;
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)) - 0.5) / 1920.;
 	flexX = ((flexX)*B_density + startUV);
+	float coordX = (flexX *FlexBeam + (1 - FlexBeam)*beam_num / BeamCount);
 
-	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
-	//coordX = id.x / BeamCount;
+	//coordX = beam_num / BeamCount;
 	float2 uv = float2(abs(step(MirrorImage,0) - coordX), float(BeamBuffer[id.x].x) / 512.);
 	float a = clamp(uv.x,0,1) *HorisontalFOV;
 	a -= -(Rotation  - HorisontalFOV / 2) % 360;
@@ -1123,7 +1131,7 @@ void DrawWedgeHistory(uint3 groupID : SV_GroupID,
 	uv += Offset;
 
 	float beam_pos = (id.x / BeamCount);
-	int j = floor(mod((PingNumber - clamp(beam_pos,0,BeamCount)) , Wedge_MemoryAmount));
+	int j = floor(mod((PingNumber - clamp(beam_pos,0,1024)) , Wedge_MemoryAmount));
 	uv = uv + float2(SWS_x,SWS_y)*d_dim.xy*SwathSpacing*j;
 
 	//Destination[uv*d_dim.ww] = 1;
