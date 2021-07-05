@@ -304,8 +304,7 @@ class F50_Pass : CustomPass
     private float time, pingTime,wedge_pingTime;
     private Vector4 zoomRect;
     private Vector2Int zoomDim;
-
-    private ScanMode _scMode_flag;
+    private ScanMode? _scMode_flag;
     private int zoom_Resolution;
     #endregion
 
@@ -523,6 +522,7 @@ class F50_Pass : CustomPass
         CreateTextPoolAndList();
 
         AcousticZoom = false;
+        _scMode_flag = null;
     }
 
     protected override void Execute(ScriptableRenderContext renderContext, CommandBuffer cmd, HDCamera camera, CullingResults cullingResult)
