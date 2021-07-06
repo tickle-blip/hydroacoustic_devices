@@ -604,6 +604,7 @@ void FillSnippetsStrip(uint3 groupID : SV_GroupID,
 
 float MinDetectRange, MaxDetectRange;
 int PingNumber;
+float ExplorationMode;
 [numthreads(64, 1, 1)]
 void ComputeDetect(uint3 groupID : SV_GroupID,
 	// 3D ID of thread group; range depends on Dispatch call
@@ -670,10 +671,6 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	}
 	
 
-
-
-
-
 	///
 
 
@@ -699,8 +696,9 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 	float3 u = float3(viewPos.x, viewPos.y, -viewPos.z)*r;
 	u = mul(_InvViewMatrix, float4(u.x,0, u.z,1));
 	//u = mul(_InvViewMatrix, float4(10*(2*rand(id.xy)-1), 0, -rand(id.xy)*10, 1));
-	PosBuffer[PingNumber*BeamCount + id.x ] = float3(u.x,u.y,u.z);
 
 
 	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = uint4(BeamBuffer[id.x].x, BeamBuffer[id.x].y, uint(10000 * u.y), uint(FlexModeEnabled));
+	if (ExplorationMode <0.5)
+		PosBuffer[PingNumber*BeamCount + id.x] = float3(u.x, u.y, u.z);
 }

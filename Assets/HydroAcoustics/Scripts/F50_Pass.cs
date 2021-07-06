@@ -88,7 +88,7 @@ class F50_Pass : CustomPass
     public int RulerFontSize = 10;
     public int ScrollAmount = 2;
     public float MainWindowToRulerRatio = 0.92f;
-        
+
     //SideScanSettings
     public bool EnableSideScan = false;
     public RulerSettings SideScanRulerSettings = new RulerSettings();
@@ -109,7 +109,7 @@ class F50_Pass : CustomPass
     public float MinDetectRange = 0f;
     public float MaxDetectRange = 100f;
     public bool EnableHistory = false;
-    public Vector3[] History_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1,1,0),new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
+    public Vector3[] History_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1, 1, 0), new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
 
     public float ZeroGroundLevel = 0f;
     public float UpperLevel = 3f;
@@ -124,7 +124,7 @@ class F50_Pass : CustomPass
 
     public Vector3[] Pseudo3d_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1, 1, 0), new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
 
-//    public bool ExplorationMode3d = false;
+    //    public bool ExplorationMode3d = false;
     //public int MemoryAmount = 100;
 
     //Image Display settings
@@ -151,7 +151,7 @@ class F50_Pass : CustomPass
 
 
     //Zoom Settings
-    [HideInInspector]public bool AcousticZoom = false;
+    [HideInInspector] public bool AcousticZoom = false;
     [HideInInspector] public Vector2 MouseCoords = new Vector2(0.5f, 0.5f); // Mouse Coords image UV space  . (0,0) - left bottom corner
     [HideInInspector] public Vector2Int ZoomWindowRect = new Vector2Int(300, 500); //Zoom window Width, Height
     [HideInInspector] public Vector2Int ZoomParams = new Vector2Int(50, 1); // Zoom %, Zoom Factor
@@ -242,7 +242,7 @@ class F50_Pass : CustomPass
     private RTHandle detect_Texture;
     private RTHandle zoom_distribution_Transit1, zoom_distribution_Transit2, zoom_distribution_Together;
 
-    private RTHandle waterColumn_scan_strip,scan_strip, ruler;
+    private RTHandle waterColumn_scan_strip, scan_strip, ruler;
     private RTHandle waterColumn_scroll, waterColumn_scroll_temp, waterColumn_result;
     private RTHandle sidescan_scroll, sidescan_scroll_temp, sidescan_result;
     private RTHandle snippets_scroll, snippets_scroll_temp, snippets_result;
@@ -251,7 +251,7 @@ class F50_Pass : CustomPass
     private ComputeBuffer pseudo3D_buffer;
 
     private int wedgePingNumber = 0;
-    private ComputeBuffer BeamBuffer,BeamHistoryBuffer;
+    private ComputeBuffer BeamBuffer, BeamHistoryBuffer;
     private int pingNumber = 0;
     //Shader Fields
 
@@ -301,15 +301,15 @@ class F50_Pass : CustomPass
 
     private int handleDrawWedge;
     //Fields for Fps
-    private float time, pingTime,wedge_pingTime;
+    private float time, pingTime, wedge_pingTime;
     private Vector4 zoomRect;
     private Vector2Int zoomDim;
-    private ScanMode? _scMode_flag;
+    private ScanMode? _scMode_flag = null;
     private int zoom_Resolution;
     #endregion
 
     public override IEnumerable<Material> RegisterMaterialForInspector() { yield return overrideMaterial; yield return terrainOverrideMaterial; }
-    
+
     public void ChangeView(ScanMode mode)
     {
         if (_scMode_flag == mode)
@@ -322,8 +322,7 @@ class F50_Pass : CustomPass
             case ScanMode.SideScan:
                 {
                     MirrorImage = true;
-                    bakingCamera.transform.localEulerAngles = new Vector3(CameraLookDownAngle, r.y , r.z);
-                    VerticalFieldOfView = SideScan_VerticalFieldOfView;
+                    bakingCamera.transform.localEulerAngles = new Vector3(CameraLookDownAngle, r.y, r.z);
                     ImageRotation = 180f;
                     CentrePercent.y = 50;
                     break;
@@ -334,7 +333,6 @@ class F50_Pass : CustomPass
                     ImageRotation = 0f;
                     CentrePercent.y = 0;
                     bakingCamera.transform.localEulerAngles = new Vector3(CameraLookForwardAngle, r.y, r.z);
-                    VerticalFieldOfView = Forward_VericalFieldOfView;
                     break;
                 }
         }
@@ -398,11 +396,11 @@ class F50_Pass : CustomPass
 
         handleDistribution_FillWaterColumnStrip = DistributionComputer.FindKernel("FillWaterColumnStrip");
         handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
-         handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
-         handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip"); 
+        handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
+        handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip");
 
-         
-        
+
+
         handleInterpolation_Remap = InterpolationComputer.FindKernel("RemapQuad");
         handleInterpolation_RenderInPolar = InterpolationComputer.FindKernel("RenderInPolar");
         handleInterpolation_RenderInCartesian = InterpolationComputer.FindKernel("RenderInCartesian");
@@ -514,7 +512,7 @@ class F50_Pass : CustomPass
         ClearRulerTextList();
 
         cmd.SetComputeBufferParam(DistributionComputer, handleClearBeamBuffer, "BeamBuffer", BeamHistoryBuffer);
-        cmd.DispatchCompute(DistributionComputer, handleClearBeamBuffer,(BeamHistoryBuffer.count + 511) / 512, 1, 1);
+        cmd.DispatchCompute(DistributionComputer, handleClearBeamBuffer, (BeamHistoryBuffer.count + 511) / 512, 1, 1);
         WaterColumnDisplay.eventTimer = 0;
         WaterColumnDisplay.globalTimer = 0;
         WaterColumnDisplay.frameTimer = 0;
@@ -522,7 +520,7 @@ class F50_Pass : CustomPass
         CreateTextPoolAndList();
 
         AcousticZoom = false;
-        _scMode_flag = null;
+        //_scMode_flag = null;
     }
 
     protected override void Execute(ScriptableRenderContext renderContext, CommandBuffer cmd, HDCamera camera, CullingResults cullingResult)
@@ -539,8 +537,22 @@ class F50_Pass : CustomPass
             return;
 
         ChangeView(ScanMode);
-        
-            time += Time.deltaTime;
+
+        switch (_scMode_flag)
+        {
+            case ScanMode.SideScan:
+                {
+                    VerticalFieldOfView = SideScan_VerticalFieldOfView;
+                    break;
+                }
+            case ScanMode.ForwardLooking:
+                {
+                    VerticalFieldOfView = Forward_VericalFieldOfView;
+                    break;
+                }
+        }
+
+        time += Time.deltaTime;
         pingTime += Time.deltaTime;
         wedge_pingTime += Time.deltaTime;
         //Frame rate varies from resolution and range
@@ -557,7 +569,7 @@ class F50_Pass : CustomPass
 
 
         float bc = (float)BeamCount;
-        cmd.SetComputeFloatParam(InterpolationComputer, "ShowSSGrid", ScanMode == ScanMode.ForwardLooking ? -1f :1f);
+        cmd.SetComputeFloatParam(InterpolationComputer, "ShowSSGrid", ScanMode == ScanMode.ForwardLooking ? -1f : 1f);
         cmd.SetComputeFloatParam(InterpolationComputer, "MirrorImage", MirrorImage == true ? -1 : 1);
         cmd.SetComputeFloatParam(DistributionComputer, "Resolution", (float)_Resolution);
         cmd.SetComputeFloatParam(DistributionComputer, "FlexModeEnabled", EnableFlexMode ? 1f : 0f);
@@ -573,8 +585,8 @@ class F50_Pass : CustomPass
         CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
         CoreUtils.SetRenderTarget(cmd, distribution_Transit2, ClearFlag.Color, clearColor: Color.clear);
 
-        LeftFlexAngle = Mathf.Clamp(LeftFlexAngle, 10f, Mathf.Max(RightFlexAngle-1f,0f));
-        RightFlexAngle = Mathf.Clamp(RightFlexAngle, Mathf.Max(LeftFlexAngle + 1f, 0f), HorizontalFieldOfView-10f);
+        LeftFlexAngle = Mathf.Clamp(LeftFlexAngle, 10f, Mathf.Max(RightFlexAngle - 1f, 0f));
+        RightFlexAngle = Mathf.Clamp(RightFlexAngle, Mathf.Max(LeftFlexAngle + 1f, 0f), HorizontalFieldOfView - 10f);
 
         int InBeamRange = (int)((BeamDensity) * BeamCount);
         int OutBeamRange = BeamCount - InBeamRange;
@@ -585,11 +597,6 @@ class F50_Pass : CustomPass
         float leftcount = Mathf.Round((OutBeamRange * (leftUV) / (1 + leftUV - rightUV)));
         float rightcount = OutBeamRange - leftcount;
 
-        Debug.Log(leftcount);
-        Debug.Log(InBeamRange);
-        Debug.Log(rightcount);
-
-        Debug.Log(leftcount + InBeamRange + rightcount);
         float leftBeamDensity = (leftUV) * distanceTexture.width / (float)leftcount;
         float rightBeamDensity = (1f - (rightUV)) * distanceTexture.width / (float)rightcount;
         float inBeamDensity = (rightUV - leftUV) * distanceTexture.width / (float)InBeamRange;
@@ -605,7 +612,7 @@ class F50_Pass : CustomPass
         cmd.SetComputeFloatParam(DistributionComputer, "InBeamDensity", inBeamDensity);
 
         //////END FILL////////////
-        
+
         //ClearDistanceBuffer
         cmd.SetComputeBufferParam(DistributionComputer, handleClearBuffer, "DistanceBuffer", distanceBuffer);
         cmd.DispatchCompute(DistributionComputer, handleClearBuffer, (distanceBuffer.count + 1023) / 1024, 1, 1);
@@ -615,7 +622,7 @@ class F50_Pass : CustomPass
         cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "Source", distanceTexture);
         cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_Main, "DestinationUINT", distribution_Transit1);
         cmd.DispatchCompute(DistributionComputer, handleDistribution_Main, BeamCount,
-                (distanceTexture.height+31)/32, 1);
+                (distanceTexture.height + 31) / 32, 1);
 
 
         //ClearDistanceBuffer
@@ -644,7 +651,7 @@ class F50_Pass : CustomPass
 
         cmd.SetComputeFloatParam(InterpolationComputer, "LeftUVBorder", leftUV);
         cmd.SetComputeFloatParam(InterpolationComputer, "RightUVBorder", rightUV);
-        
+
         cmd.SetComputeFloatParam(InterpolationComputer, "LeftBeamDensity", leftBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "RightBeamDensity", rightBeamDensity);
         cmd.SetComputeFloatParam(InterpolationComputer, "InBeamDensity", inBeamDensity);
@@ -655,8 +662,8 @@ class F50_Pass : CustomPass
 
             EmitEventLine(WaterColumnDisplay);
             WaterColumnDisplay.frameTimer += Time.deltaTime;
-            
-            if (WaterColumnDisplay.frameTimer > (float)WaterColumnDisplay.Scroll * (1f/FrameRate) / 1000f)
+
+            if (WaterColumnDisplay.frameTimer > (float)WaterColumnDisplay.Scroll * (1f / FrameRate) / 1000f)
             {
                 WaterColumnDisplay.globalTimer += (float)WaterColumnDisplay.Scroll * (1 / FrameRate) / 1000f;
                 WaterColumnDisplay.frameTimer = 0f;
@@ -704,12 +711,12 @@ class F50_Pass : CustomPass
                        (waterColumn_result.referenceSize.y + 31) / 32, 1);
             }
         }
-        
+
 
         if (EnableDetect == true && wedge_pingTime > HistoryPingDelay)
         {
 
-            
+
             var v = bakingCamera.cameraToWorldMatrix;
             var p = GL.GetGPUProjectionMatrix(bakingCamera.projectionMatrix, true);
             var vp = p * v;
@@ -736,7 +743,7 @@ class F50_Pass : CustomPass
 
 
             wedgePingNumber = wedgePingNumber < (Wedge_MemoryAmount - 1) ? wedgePingNumber + 1 : 0;
-            
+
         }
 
 
@@ -747,11 +754,13 @@ class F50_Pass : CustomPass
         {
             case WedgeDisplayMode.FullImage:
                 break;
-            case WedgeDisplayMode.OnlyNoise:{
+            case WedgeDisplayMode.OnlyNoise:
+                {
                     CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
                     break;
                 }
-            case WedgeDisplayMode.None:{
+            case WedgeDisplayMode.None:
+                {
                     CoreUtils.SetRenderTarget(cmd, distribution_Transit1, ClearFlag.Color, clearColor: Color.clear);
                     CoreUtils.SetRenderTarget(cmd, distribution_Transit2, ClearFlag.Color, clearColor: Color.clear);
                     break;
@@ -794,7 +803,7 @@ class F50_Pass : CustomPass
             cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderInCartesian, (ResultDimensions.x + 31) / 32,
                   (ResultDimensions.y + 31) / 32, 1);
         }
-       
+
         if (EnableDetect == true)
         {
 
@@ -846,10 +855,10 @@ class F50_Pass : CustomPass
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDetect, "Destination", Result);
             cmd.DispatchCompute(InterpolationComputer, handleInterpolation_RenderDetect, (BeamBuffer.count + 63) / 64,
                     1, 1);
-          
+
             cmd.ReleaseTemporaryRT(tempRes);
         }
-        
+
         if (AcousticZoom == true)
         {
             CoreUtils.SetRenderTarget(cmd, zoom_DistanceTexture, ClearFlag.All, clearColor: Color.black);
@@ -1032,7 +1041,7 @@ class F50_Pass : CustomPass
             Vector4 surfLevels = new Vector4(ZeroGroundLevel, UpperLevel, 1, 1);
             //cmd.SetGlobalFloatArray("SurfaceLevels", surfLevels);
 
-            
+
 
 
             cmd.SetGlobalVector("SurfaceLevels", surfLevels);
@@ -1061,7 +1070,7 @@ class F50_Pass : CustomPass
 
 
         }
-        
+
 
 
 
@@ -1099,8 +1108,8 @@ class F50_Pass : CustomPass
         DrawMarksOnUI();
         if (PolarView == false)
         {
-                DrawCartesianViewDigits();
-                DrawDownLook_ViewDigits();
+            DrawCartesianViewDigits();
+            DrawDownLook_ViewDigits();
         }
         else
             DrawPolarViewDigits();
@@ -1127,8 +1136,8 @@ class F50_Pass : CustomPass
         cmd.SetComputeIntParam(BlurComputer, "blurRadius", (int)SmoothRadius);
 
         int tempID = Shader.PropertyToID("tempTogether");
-        cmd.GetTemporaryRT(tempID,distribution_Together.rt.descriptor);
-        
+        cmd.GetTemporaryRT(tempID, distribution_Together.rt.descriptor);
+
         //SetTextures
         cmd.SetComputeTextureParam(BlurComputer, handleBlurHor, "source", distribution_Together);
         cmd.SetComputeTextureParam(BlurComputer, handleBlurHor, "horBlurOutput", tempID);
@@ -1174,8 +1183,8 @@ class F50_Pass : CustomPass
         //cmd.SetComputeFloatParam(DistributionComputer, "Zoom_angle2", zoomRect.width + zoomRect.x);
         cmd.SetComputeFloatParam(DistributionComputer, "HorisontalFOV", HorizontalFieldOfView);
         cmd.SetComputeFloatParam(DistributionComputer, "VerticalFOV", VerticalFieldOfView);
-       // cmd.SetComputeFloatParam(DistributionComputer, "TopNoiseTreshold", NoiseTresholdForMaxFOV);
-       // cmd.SetComputeFloatParam(DistributionComputer, "BottomNoiseTreshold", NoiseTresholdForMinFOV);
+        // cmd.SetComputeFloatParam(DistributionComputer, "TopNoiseTreshold", NoiseTresholdForMaxFOV);
+        // cmd.SetComputeFloatParam(DistributionComputer, "BottomNoiseTreshold", NoiseTresholdForMinFOV);
     }
 
     private void SetVar_DisplayAndZoomParams(CommandBuffer cmd)
@@ -1218,7 +1227,7 @@ class F50_Pass : CustomPass
     {
 
         cmd.SetComputeIntParam(InterpolationComputer, "GridCount", ShowGrid == true ? 2 : 0);
-        cmd.SetComputeIntParam(InterpolationComputer, "LinesCount", ScanMode == ScanMode.ForwardLooking ? Lines:0);
+        cmd.SetComputeIntParam(InterpolationComputer, "LinesCount", ScanMode == ScanMode.ForwardLooking ? Lines : 0);
         cmd.SetComputeIntParam(InterpolationComputer, "Rings", ScanMode == ScanMode.ForwardLooking ? Rings : 1);
         cmd.SetComputeFloatParam(InterpolationComputer, "Rotation", ImageRotation);
 
@@ -1512,7 +1521,7 @@ class F50_Pass : CustomPass
 
     private void AllocateTexturesIfNeeded()
     {
-        float texAmplifier = Mathf.Clamp( VerticalFieldOfView/12.5f,0f,1f);
+        float texAmplifier = Mathf.Clamp(VerticalFieldOfView / 12.5f, 0f, 1f);
         int DistTexHeight = (int)(512 * texAmplifier);
         if (ResultDimensions == Vector2Int.zero)
         {
@@ -1529,13 +1538,11 @@ class F50_Pass : CustomPass
         //Result Textures
         if (Result == null || ResultDimensions != Result.referenceSize)
         {
-            Debug.Log("Result Inited");
             Result?.Release();
             Result = RTHandles.Alloc(
                 ResultDimensions.x, ResultDimensions.y, dimension: TextureDimension.Tex2D, colorFormat: vector4Format,
                 name: "Result", enableRandomWrite: true
             );
-            Debug.Log(Result.referenceSize);
             pseudo3D_Result?.Release();
             pseudo3D_Result = new RenderTexture(ResultDimensions.x, ResultDimensions.y, 16, vector4Format);
             pseudo3D_Result.enableRandomWrite = true;
@@ -1559,12 +1566,12 @@ class F50_Pass : CustomPass
             );
         }
 
-        if (BeamBuffer == null || BeamCount != BeamBuffer.count || BeamCount*Wedge_MemoryAmount != BeamHistoryBuffer.count)
+        if (BeamBuffer == null || BeamCount != BeamBuffer.count || BeamCount * Wedge_MemoryAmount != BeamHistoryBuffer.count)
         {
             BeamBuffer?.Dispose();
             BeamBuffer = new ComputeBuffer(BeamCount, sizeof(uint) * 2, ComputeBufferType.Default);
             BeamHistoryBuffer?.Dispose();
-            BeamHistoryBuffer = new ComputeBuffer(BeamCount*Wedge_MemoryAmount, sizeof(uint) * 4, ComputeBufferType.Default);
+            BeamHistoryBuffer = new ComputeBuffer(BeamCount * Wedge_MemoryAmount, sizeof(uint) * 4, ComputeBufferType.Default);
 
         }
 
@@ -1617,7 +1624,7 @@ class F50_Pass : CustomPass
         zoomRect = CalculateZoomCameraRect();
         int z_res = (int)(Mathf.Clamp(_Resolution * ZoomParams.y, 360, 1440));
         Vector2Int _z_Dim = new Vector2Int(Mathf.FloorToInt(z_res * (zoomRect.z)), z_res);
-        if (zoomDim != _z_Dim && AcousticZoom )
+        if (zoomDim != _z_Dim && AcousticZoom)
         {
             //Check Values
             ZoomParams.x = ZoomParams.x == 0 ? 1 : ZoomParams.x;
@@ -1691,12 +1698,12 @@ class F50_Pass : CustomPass
 
             if (waterColumn_scroll != null) waterColumn_scroll.Release();
             waterColumn_scroll = RTHandles.Alloc(
-                960,_Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
+                960, _Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
                 name: "waterColumn_scroll", enableRandomWrite: true);
 
             if (waterColumn_scroll_temp != null) waterColumn_scroll_temp.Release();
             waterColumn_scroll_temp = RTHandles.Alloc(
-                960,_Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
+                960, _Resolution, dimension: TextureDimension.Tex2D, colorFormat: vectorFormat,
                 name: "waterColumn_scroll_temp", enableRandomWrite: true);
 
 
@@ -1803,33 +1810,33 @@ class F50_Pass : CustomPass
         void Draw(List<Text> gridMarks, Vector2 resWH, Vector2 Cent, float z)
         {
 
-            if ((ShowGrid==true &&ScanMode == ScanMode.SideScan && PolarView == false))
+            if ((ShowGrid == true && ScanMode == ScanMode.SideScan && PolarView == false))
             {
                 Vector2 dir, offset_val, dCoord, offset_sign;
                 float dist;
                 string text;
 
-                
+
                 for (int i = 0; i < S_ScanDistanceMarks.Count; i++)
                 {
                     float C = S_ScanDistanceMarks.Count;
 
-                    dir = new Vector2(Mathf.Cos((-ImageRotation + 90f) * Mathf.Deg2Rad), Mathf.Sin((-ImageRotation + 90f ) * Mathf.Deg2Rad));
+                    dir = new Vector2(Mathf.Cos((-ImageRotation + 90f) * Mathf.Deg2Rad), Mathf.Sin((-ImageRotation + 90f) * Mathf.Deg2Rad));
                     dir.Normalize();
 
                     offset_val = new Vector2(0f, -60f);// -markWidth);
                     offset_sign = new Vector2(0f, 0f);
-                    dist = z*minAbs/2f*(1f * (1f - ((i + 1f) / (C + 1f))));
+                    dist = z * minAbs / 2f * (1f * (1f - ((i + 1f) / (C + 1f))));
                     text = (Mathf.Round(2f * (MinDisplayRange + scanRange * i / Rings)) / 2f).ToString();
 
                     string dim = "m";
-                    float rangeVal = Mathf.Abs((MaxScanRange) * (1f-(i + 1f) / (C + 1f)));
+                    float rangeVal = Mathf.Abs((MaxScanRange) * (1f - (i + 1f) / (C + 1f)));
                     text = Mathf.Round(rangeVal).ToString() + dim;
                     dCoord = new Vector2(Cent.x, Cent.y) + dir * dist - Vector2.Perpendicular(dir) * offset_val.y;
                     dir = Vector2.Perpendicular(dir);
                     sm(gridMarks[i], text, dCoord, dir, offset_sign);
 
-                    
+
                 }
             }
             else
@@ -1841,7 +1848,7 @@ class F50_Pass : CustomPass
             }
         }
         Draw(S_ScanDistanceMarks, resRect, center, rScale);
-        
+
     }
 
 
@@ -1976,7 +1983,7 @@ class F50_Pass : CustomPass
                 }
                 return;
             }
-            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false&& ScanMode == ScanMode.ForwardLooking))
+            if ((ShowGrid == true && Rings != 0 && ShowDigits && PolarView == false && ScanMode == ScanMode.ForwardLooking))
             {
                 Vector2 dir, offset_val, dCoord, offset_sign;
                 float dist;
@@ -2043,8 +2050,8 @@ class F50_Pass : CustomPass
                     dist = z * minAbs / 2f + offset_val.x;
                     offset_sign = new Vector2(1f, 1f);
 
-                    float b = (MirrorImage == true)? -1:1;
-                    text = (b*(Mathf.Round(2f * (a - S1_angle)) / 2f - HorizontalFieldOfView / 2f)).ToString() + "°";
+                    float b = (MirrorImage == true) ? -1 : 1;
+                    text = (b * (Mathf.Round(2f * (a - S1_angle)) / 2f - HorizontalFieldOfView / 2f)).ToString() + "°";
                     dCoord = Cent + dir * dist + Vector2.Perpendicular(dir) * offset_val.y;
                     dir = Vector2.zero;
                     //dir.= -dir.x;
@@ -2543,7 +2550,7 @@ class F50_Pass : CustomPass
 
             display.Event.EventInterval = Mathf.Clamp(display.Event.EventInterval, 1f, 30f);
 
-            float ScrollTime = (float)display.Scroll * (1f/FrameRate) * (960f / (float)ScrollAmount) / 1000f;
+            float ScrollTime = (float)display.Scroll * (1f / FrameRate) * (960f / (float)ScrollAmount) / 1000f;
             ScrollTime = Mathf.Clamp(ScrollTime, 0f, 60f);
             float MaxLines = Mathf.Clamp(ScrollTime / display.Event.EventInterval, 1f, 60f);
 
@@ -2696,10 +2703,10 @@ class F50_Pass : CustomPass
             for (int i = 0; i < C; i++)
             {
                 float xCoord = 1.0f;
-                dCoord = new Vector2(resWH.x/2, resWH.y*(xCoord * (1f-((i+1f)/(C+1f))) - 0.5f)) - Vector2.Perpendicular(dir) * offset_val.y;
+                dCoord = new Vector2(resWH.x / 2, resWH.y * (xCoord * (1f - ((i + 1f) / (C + 1f))) - 0.5f)) - Vector2.Perpendicular(dir) * offset_val.y;
 
                 string dim = "m";
-                float rangeVal = Mathf.Abs((MaxScanRange) * (i+1f)/(C+1f));
+                float rangeVal = Mathf.Abs((MaxScanRange) * (i + 1f) / (C + 1f));
                 text = Mathf.Round(rangeVal).ToString() + dim;
                 sm(WaterColumn_RulerText[i], text, dCoord, dir, offset_sign);
             }
@@ -2707,7 +2714,7 @@ class F50_Pass : CustomPass
 
         void sm(Text mark, string text, Vector2 coord, Vector2 offsetDir, Vector2 offset_sign)
         {
-            var bounds = new Vector2(mark.preferredWidth +0f, mark.preferredHeight) / 2f;
+            var bounds = new Vector2(mark.preferredWidth + 0f, mark.preferredHeight) / 2f;
             mark.text = text;
             mark.font = CustomFont;
             mark.fontSize = RulerFontSize;

@@ -54,7 +54,7 @@ class SBP_Pass : CustomPass
     //public RawImage Test_img;
     //public RawImage Test_img1;
     //public Texture2D test;
-    //public RawImage distance_img;
+    public RawImage distance_img;
     public Vector2Int ResultDimensions = new Vector2Int(1920, 1080);
     public Camera UI_Camera_LF;
     public Camera UI_Camera_HF;
@@ -181,7 +181,7 @@ class SBP_Pass : CustomPass
     
     #endregion
 
-    public override IEnumerable<Material> RegisterMaterialForInspector() { yield return overrideMaterial; }
+    public override IEnumerable<Material> RegisterMaterialForInspector() { yield return overrideMaterial; yield return terrainOverrideMaterial; }
     
     private void InitSHaders_CashNameHandles()
     {
@@ -312,12 +312,12 @@ class SBP_Pass : CustomPass
             ResultHFProfilerImage.SetNativeSize();
         }
 
-         /*if (distance_img != null)
+         if (distance_img != null)
             distance_img.texture = DistanceTexture;
-         if (Test_img != null)
-             Test_img.texture = DistanceTexture_Temp;
-         if (Test_img1 != null)
-             Test_img1.texture = LF_Ruler;*/
+        /*if (Test_img != null)
+            Test_img.texture = DistanceTexture_Temp;
+        if (Test_img1 != null)
+            Test_img1.texture = LF_Ruler;*/
     }
 
     private void RenderImage(CommandBuffer cmd, ProfilerDisplay Display)

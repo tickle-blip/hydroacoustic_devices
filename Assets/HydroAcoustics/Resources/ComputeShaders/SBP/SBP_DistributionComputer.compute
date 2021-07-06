@@ -94,7 +94,7 @@ void MapDepthToQuadProfiler(uint2 id : SV_DispatchThreadID)
 	//float m2 = 1-remap(0, 1, 180, 720, clamp(d_dim.x, 180, 720));
 	//float res_m = lerp(1,0.39, m1) * step(d_dim.x, 179) + lerp(0.39,0.13,1-m2*m2*m2) * step(180, d_dim.x);
 	float m2 = remap(0, 1, 360, 720, clamp(d_dim.y, 360, 720));
-	float res_m = lerp(3, 1, m2);
+	float res_m = lerp(1.7, 1, m2);
 	float g = (0.1 + Gain + lerp(0, 0.5, 1 - radius*radius) / 10)*0.3*res_m ;// *(res_m);
 
 
@@ -177,7 +177,7 @@ void MapNoiseToQuadSonar(uint2 id : SV_DispatchThreadID)
 	n_refl = n_refl + n_refl * 0.5 * (rand(id.yx) - 0.6);
 	n_refl = remap(Noise_Refl_Min_Max.x, Noise_Refl_Min_Max.y, 0.1, 0.75, clamp(n_refl, 0.1, 0.75));
 	float m2 = remap(0, 1, 360, 720, clamp(d_dim.y, 360, 720));
-	float res_m = lerp(3, 1, m2);
+	float res_m = lerp(2, 1, m2);
 	float g = (0.1 + Gain)*lerp(AboveBot_Noise_Gain_Mult, BelowBot_Noise_Gain_Mult, above_below)*0.3 *(res_m);
 
 	GroupMemoryBarrier();

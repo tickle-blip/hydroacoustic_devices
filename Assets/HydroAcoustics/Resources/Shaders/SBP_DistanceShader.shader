@@ -3,7 +3,7 @@
     Properties
     {
 		Reflectivity("Reflectivity", Range(0.0, 1.0))=1
-		Wideness("Wideness", Range(0.0, 1.0)) = 0
+		Wideness("Wideness", Range(0.0, 1.0)) = 0.1
 		Bezier1("Bezier1", Range(0.0, 1.0)) = 1
     }
 
@@ -106,9 +106,9 @@
 
 				//Perform depth test
 				float deltaVal = Distance - SampledTerrainData.r;
-				deltaVal = clamp(-deltaVal * step(deltaVal, 0), 0, 1);
+				deltaVal = clamp(deltaVal * step(-deltaVal, 0), 0, 1);
 
-				float delta = clamp(sign(Distance - SampledTerrainData.r), 0, 1);
+				float delta = clamp(-sign(Distance - SampledTerrainData.r), 0, 1);
 				float seed = smoothNoise(fragInputs.positionSS.xy / 720 * 50);
 				float clip = lerp(seed*(1 - ShowSBSolid), 1, delta)* step(deltaVal, SampledTerrainData.b / MaxScanRange);
 				
