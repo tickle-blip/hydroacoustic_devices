@@ -122,9 +122,9 @@ class F50_Pass : CustomPass
     //Pseudo3d Settings
     public bool EnablePseudo3D = false;
 
+    public bool ExplorationMode_3D = false;
     public Vector3[] Pseudo3d_Colors = { new Vector3(0, 0, 1), new Vector3(0, 1, 0), new Vector3(1, 1, 0), new Vector3(1, 0, 0) }; //Color Palette. colors in range (0.0 - 1.0)
 
-    //    public bool ExplorationMode3d = false;
     //public int MemoryAmount = 100;
 
     //Image Display settings
@@ -723,8 +723,11 @@ class F50_Pass : CustomPass
             wedge_pingTime = 0;
 
 
+            cmd.SetComputeFloatParam(DistributionComputer, "ExplorationMode", ExplorationMode_3D ? 1f : 0f);
             cmd.SetComputeFloatParam(DistributionComputer, "MinDetectRange", MinDetectRange);
             cmd.SetComputeFloatParam(DistributionComputer, "MaxDetectRange", MaxDetectRange);
+            //cmd.SetComputeFloatParam(DistributionComputer, "ExplorationMode", MinDetectRange);
+            //cmd.SetComputeFloatParam(DistributionComputer, "ExplorationMode", MinDetectRange);
 
             cmd.SetComputeFloatParam(DistributionComputer, "LeftBeamDensity", leftBeamDensity);
             cmd.SetComputeFloatParam(DistributionComputer, "RightBeamDensity", rightBeamDensity);
@@ -1175,7 +1178,6 @@ class F50_Pass : CustomPass
 
         cmd.SetComputeFloatParam(DistributionComputer, "Gain", Gain);
         cmd.SetComputeFloatParam(DistributionComputer, "TVG", TVG);
-
         cmd.SetComputeFloatParam(DistributionComputer, "Zoom_angle1", 0);
         cmd.SetComputeFloatParam(DistributionComputer, "Zoom_angle2", 1);
 
