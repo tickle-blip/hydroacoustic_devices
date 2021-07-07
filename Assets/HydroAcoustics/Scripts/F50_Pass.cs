@@ -2362,8 +2362,8 @@ class F50_Pass : CustomPass
     {
         var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
 
-        if (SideScanRulerSettings.RulerScale == 0) SideScanRulerSettings.RulerScale = 1;
-        if (SideScanRulerSettings.RulerScale != 0 && SideScan_RulerText.Count != (SideScanRulerSettings.RulerScale) || SideScan_RulerText == null)
+        if (SideScanRulerSettings.RulerScale <= 1) SideScanRulerSettings.RulerScale = 2;
+        if (SideScanRulerSettings.RulerScale > 1 && SideScan_RulerText.Count != (SideScanRulerSettings.RulerScale) || SideScan_RulerText == null)
         {
             CreateRulerTextList(SideScanRulerSettings.RulerScale);
         }
@@ -2444,8 +2444,8 @@ class F50_Pass : CustomPass
     {
         var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
 
-        if (SnippetsRulerSettings.RulerScale == 0) SnippetsRulerSettings.RulerScale = 1;
-        if (SnippetsRulerSettings.RulerScale != 0 && Snippets_RulerText.Count != (SnippetsRulerSettings.RulerScale) || Snippets_RulerText == null)
+        if (SnippetsRulerSettings.RulerScale <= 1) SnippetsRulerSettings.RulerScale = 2;
+        if (SnippetsRulerSettings.RulerScale > 1 && Snippets_RulerText.Count != (SnippetsRulerSettings.RulerScale) || Snippets_RulerText == null)
         {
             CreateSnippetsRulerTextList(SnippetsRulerSettings.RulerScale);
         }
