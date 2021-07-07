@@ -703,13 +703,13 @@ void RenderSideScanFinal(uint3 groupID : SV_GroupID,
 	float3 ruler = Ruler[coordRuler].xyz;
 
 	float box = sdBox((uv_from_center)*d_dim.zw, d_dim.zw / 2, 6);
-	float3 color = lerp(_Colors[0], RulerDigitsColor,box);
+	float3 color = lerp(_Colors[0], RulerBackground,box);
 
-	float m = 1. / (RulerScale - 1.);
+	float m = 1. / (RulerScale -1.);
 	float thickness = 0.002;
 
-	float2 uvSym = float2(((1 + thickness)) *uv_from_center.x % (m), uv.y);
-	float Line = LineSegment(uvSym, float2(0.00, -0.02), float2(0, 0));
+	float2 uvSym = float2(((1+ thickness)) *(uv_from_center.x+0.5) % (m), uv.y);
+	float Line = LineSegment(uvSym, float2(0, -0.02), float2(0, 0));
 
 	Line = LineSharpen(Line, thickness, d_dim.zw);
 	color = lerp(RulerDigitsColor, color, 1 - Line);

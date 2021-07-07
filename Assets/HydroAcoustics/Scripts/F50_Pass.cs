@@ -281,7 +281,7 @@ class F50_Pass : CustomPass
     private int handleDistribution_FillSideScanStrip;
     private int handleDistribution_FillSnippetsStrip;
     private int handleDistribution_ComputeDetect;
-
+    private int handleDistribution_Pseudo3DFill;
     private int handleInterpolation_RenderInPolar;
     private int handleInterpolation_RenderInCartesian;
     private int handleInterpolation_RenderDetect;
@@ -396,6 +396,7 @@ class F50_Pass : CustomPass
 
         handleDistribution_FillWaterColumnStrip = DistributionComputer.FindKernel("FillWaterColumnStrip");
         handleDistribution_ComputeDetect = DistributionComputer.FindKernel("ComputeDetect");
+        handleDistribution_Pseudo3DFill = DistributionComputer.FindKernel("Pseudo3DFill");
         handleDistribution_FillSideScanStrip = DistributionComputer.FindKernel("FillSideScanStrip");
         handleDistribution_FillSnippetsStrip = DistributionComputer.FindKernel("FillSnippetsStrip");
 
@@ -510,7 +511,8 @@ class F50_Pass : CustomPass
         Zoom_GridDistanceMarks = new List<Text>();
         ClearTextMarks();
         ClearRulerTextList();
-
+        ClearSnippetsRulerTextList();
+        ClearWaterColumnRulerTextList();
         cmd.SetComputeBufferParam(DistributionComputer, handleClearBeamBuffer, "BeamBuffer", BeamHistoryBuffer);
         cmd.DispatchCompute(DistributionComputer, handleClearBeamBuffer, (BeamHistoryBuffer.count + 511) / 512, 1, 1);
         WaterColumnDisplay.eventTimer = 0;
@@ -736,13 +738,23 @@ class F50_Pass : CustomPass
             cmd.SetComputeIntParam(DistributionComputer, "PingNumber", wedgePingNumber);
             cmd.SetComputeMatrixParam(DistributionComputer, "_InvViewMatrix", v);
             cmd.SetComputeIntParam(DistributionComputer, "Wedge_MemoryAmount", Wedge_MemoryAmount);
-            cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "PosBuffer", pseudo3D_buffer);
+            //cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "PosBuffer", pseudo3D_buffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamHistoryBuffer", BeamHistoryBuffer);
             cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_ComputeDetect, "BeamBuffer", BeamBuffer);
             cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Read_TexUint_1", distribution_Transit2);
             cmd.SetComputeTextureParam(DistributionComputer, handleDistribution_ComputeDetect, "Read_TexUint_2", distribution_Transit1);
             cmd.DispatchCompute(DistributionComputer, handleDistribution_ComputeDetect, (distribution_Transit1.referenceSize.x + 63) / 64,
                    1, 1);
+
+
+            if (ExplorationMode_3D == false)
+            {
+                cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_Pseudo3DFill, "PosBuffer", pseudo3D_buffer);
+                cmd.SetComputeBufferParam(DistributionComputer, handleDistribution_Pseudo3DFill, "BeamBuffer", BeamBuffer);
+                cmd.DispatchCompute(DistributionComputer, handleDistribution_Pseudo3DFill, (BeamBuffer.count + 63) / 64,
+                       1, 1);
+            }
+
 
 
             wedgePingNumber = wedgePingNumber < (Wedge_MemoryAmount - 1) ? wedgePingNumber + 1 : 0;
@@ -1012,12 +1024,12 @@ class F50_Pass : CustomPass
             //Render Ruler 
 
             cmd.SetComputeFloatParam(InterpolationComputer, "WindowsRatio", MainWindowToRulerRatio);
-            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", SideScanRulerSettings.RulerScale);
-            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", SideScanRulerSettings.showSmallDivisions ? 1 : 0);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", SideScanRulerSettings.BackGroundColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", SideScanRulerSettings.AmplitudeScaleColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", SideScanRulerSettings.DivisionsColor);
-            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", SideScanRulerSettings.DigitsColor);
+            cmd.SetComputeFloatParam(InterpolationComputer, "RulerScale", SnippetsRulerSettings.RulerScale);
+            cmd.SetComputeFloatParam(InterpolationComputer, "ShowDivisions", SnippetsRulerSettings.showSmallDivisions ? 1 : 0);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerBackground", SnippetsRulerSettings.BackGroundColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerScaleColor", SnippetsRulerSettings.AmplitudeScaleColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDivisionsColor", SnippetsRulerSettings.DivisionsColor);
+            cmd.SetComputeVectorParam(InterpolationComputer, "RulerDigitsColor", SnippetsRulerSettings.DigitsColor);
 
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "DistStrip", scan_strip);
             cmd.SetComputeTextureParam(InterpolationComputer, handleInterpolation_RenderDepthRuler, "Destination", ruler);
@@ -2427,7 +2439,7 @@ class F50_Pass : CustomPass
                 GameObject.DestroyImmediate(sidescan_ruler_text_marks_placeholder.GetChild(i).gameObject);
         }
     }
-    //WaterColumn Ruler
+    //Snippets Ruler
     private void DrawSnippetsRuler()
     {
         var resRect = new Vector2(ResultDimensions.x, ResultDimensions.y);
@@ -2472,7 +2484,7 @@ class F50_Pass : CustomPass
             var dCoord = coord + offsetDir * bounds.x * offset_sign.x + Vector2.Perpendicular(offsetDir) * bounds.y * offset_sign.y;
 
             mark.rectTransform.localPosition = dCoord;
-            mark.color = SideScanRulerSettings.DigitsColor;
+            mark.color = SnippetsRulerSettings.DigitsColor;
             mark.gameObject.SetActive(true);
         }
     }
@@ -2689,6 +2701,15 @@ class F50_Pass : CustomPass
         if (WaterColumnDisplay.GridCount > 0 && WaterColumn_RulerText.Count != (WaterColumnDisplay.GridCount) || WaterColumn_RulerText == null)
         {
             CreateWaterColumnRulerTextList(WaterColumnDisplay.GridCount);
+        }
+
+        if (WaterColumnDisplay.ShowGrid == false)
+        {
+            foreach (var text in WaterColumn_RulerText)
+            {
+                text.gameObject.SetActive(false);
+            }
+            return;
         }
         Draw(resRect, resRect / 2f, 1f);
 

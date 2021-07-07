@@ -2,6 +2,7 @@
 #pragma kernel MapBeamNoiseDistanceData
 #pragma kernel FillWaterColumnStrip
 #pragma kernel ComputeDetect
+#pragma kernel Pseudo3DFill
 #pragma kernel FillSideScanStrip
 #pragma kernel FillSnippetsStrip
 #pragma kernel ClearBuffer
@@ -37,6 +38,7 @@ float FlexModeEnabled;
 
 //Detect
 int Wedge_MemoryAmount;
+float LowerFactor, MiddleFactor;
 //Distance, Color, uv.x
 RWStructuredBuffer<uint2> BeamBuffer;
 RWStructuredBuffer<uint4> BeamHistoryBuffer;
@@ -659,6 +661,7 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 
 		float d = cos(aHor)*float(raw*s_dim.y)*Range;
 		val = val * step(d, MaxDetectRange)* step(MinDetectRange, d);
+
 		//uint color = (uint)(1023.0 *Source[uint2(id.x,raw)].x);
 		//color = max(color,(uint)(1023.0 *Noise1[uint2(id.x, raw)].x));
 		
@@ -699,6 +702,58 @@ void ComputeDetect(uint3 groupID : SV_GroupID,
 
 
 	BeamHistoryBuffer[PingNumber*BeamCount + id.x] = uint4(BeamBuffer[id.x].x, BeamBuffer[id.x].y, uint(10000 * u.y), uint(FlexModeEnabled));
-	if (ExplorationMode <0.5)
-		PosBuffer[PingNumber*BeamCount + id.x] = float3(u.x, u.y, u.z);
+	//if (ExplorationMode <0.5)
+	//	PosBuffer[PingNumber*BeamCount + id.x] = float3(u.x, u.y, u.z);
+}
+
+
+[numthreads(64, 1, 1)]
+void Pseudo3DFill(uint3 groupID : SV_GroupID,
+	// 3D ID of thread group; range depends on Dispatch call
+	uint3 groupThreadID : SV_GroupThreadID,
+	// 3D ID of thread in a thread group; range depends on numthreads
+	uint groupIndex : SV_GroupIndex,
+	// flattened/linearized SV_GroupThreadID. 
+	// groupIndex specifies the index within the group (0 to 63)
+	uint3 id : SV_DispatchThreadID)
+	// = SV_GroupID * numthreads + SV_GroupThreadID
+	// id.x specifies the row in the input texture image
+{
+
+
+
+	float beam_num = id.x + 1;
+
+	float leftZone = step(beam_num, BeamCount_left);
+	float midZone = step(BeamCount_left, beam_num - 1)*step(beam_num, (BeamCount_left + BeamCount_mid));
+	float rightZone = step((BeamCount_left + BeamCount_mid), beam_num);
+
+	float B_density = rightZone * RightBeamDensity + leftZone * LeftBeamDensity + midZone * InBeamDensity;
+	B_density = FlexModeEnabled * B_density;
+
+	float startUV = midZone * LeftUVBorder + rightZone * RightUVBorder;
+
+	float flexX = (leftZone * (beam_num)+midZone * (beam_num - BeamCount_left) + rightZone * (beam_num - (BeamCount_left + BeamCount_mid)) - 1) / Resolution;
+	flexX = ((flexX)*B_density + startUV);
+
+
+	float coordX = (flexX *FlexModeEnabled + (1 - FlexModeEnabled)*beam_num / BeamCount);
+
+	float aHor = (-0.5 + coordX) *HorisontalFOV*0.0174533;
+
+	///
+
+	//coordX = id.x / BeamCount;
+	float2 uv = float2(coordX, BeamBuffer[id.x].x/BeamCount); //uv.x - angleHOR, uv.y - distance, uv.z - angleVER
+	 //in rad
+	//
+	float r = uv.y*Range;
+
+	float3 viewPos = float3(sin(aHor), 0, cos(aHor));
+
+
+	float3 u = float3(viewPos.x, viewPos.y, -viewPos.z)*r;
+	u = mul(_InvViewMatrix, float4(u.x, 0, u.z, 1));
+
+	PosBuffer[PingNumber*BeamCount + id.x] = float3(u.x, u.y, u.z);
 }
